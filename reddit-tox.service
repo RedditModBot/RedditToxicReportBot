@@ -1,0 +1,15 @@
+[Unit]
+Description=Reddit Toxicity Moderator Reporter
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/reddit-tox-bot
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/reddit-tox-bot/.venv/bin/python %h/reddit-tox-bot/bot.py
+Restart=always
+RestartSec=10
+User=%i
+
+[Install]
+WantedBy=multi-user.target
