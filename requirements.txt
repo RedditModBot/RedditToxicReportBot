@@ -1,5 +1,20 @@
-praw>=7.7.1,<8
-detoxify==0.5.1
-torch>=2.2.0; platform_system != "Windows"
+# requirements.txt
+
+# Core bot bits
+praw==7.8.1
 python-dotenv>=1.0.1
 requests>=2.32.3
+tqdm>=4.65
+
+# ML stack
+# Install torch first from the PyTorch CPU index (you already did); this line is here for completeness
+torch>=2.4.0
+
+# Detoxify >=0.5.2 no longer hard-pins ancient Transformers
+detoxify==0.5.2
+
+# HF ecosystem versions that have Python 3.12 manylinux wheels (no Rust build step)
+transformers==4.57.1
+tokenizers==0.22.1
+huggingface-hub==0.36.0
+sentencepiece==0.2.1

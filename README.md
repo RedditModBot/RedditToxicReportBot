@@ -1,268 +1,344 @@
-# RedditToxicReportBot
+# ToxicReportBot
 
-Files Reddit comments in your subreddit as **moderator reports** when they cross a toxicity threshold. Primary score from **Detoxify** (CPU-friendly). Optional secondary score from a **Hugging Face** classifier to mirror your older “HF” signal. De-dupes so you don’t spam reports. Optional Discord notifications.
+A lightweight Reddit moderator helper that scans new comments with a toxicity model, reports those above a threshold you configure, and posts a optional weekly Discord summary with week‑over‑week deltas. It also refreshes report outcomes daily by reading your subreddit’s modlog (removals vs approvals) so the summary reflects what actually happened to items the bot reported.
 
----
+## What it does
 
-## Features
+- Streams new comments from one or more subreddits
+- Scores toxicity using [`detoxify`](https://github.com/unitaryai/detoxify) (PyTorch)
+- Logs every scan (`reported_ids.jsonl`)
+- Reports comments at or above `THRESHOLD` with a configurable report reason
+- Refreshes outcomes daily by scanning the modlog (which reported comments were approved or removed)
+- Posts a weekly summary to Discord with deltas vs the previous week
 
-- Monitor one or more subreddits for new comments (lightweight polling).
-- Score text with **Detoxify** (`original` or `unbiased`).
-- Optional **Hugging Face** classifier (default `unitary/unbiased-toxic-roberta`).
-- Create **moderator reports** with a short verdict like `ToxicReportBot: TOXIC (confidence: high).`
-- De-duplicate using `reported_ids.jsonl`.
-- Optional Discord webhook summaries.
-- Systemd unit provided for server use.
+## What it **doesn’t** do
 
----
-
-## Requirements
-
-- Linux with **Python 3.10** (Ubuntu 22.04+ is fine)
-- A Reddit bot account that is a **moderator** of your target subreddit(s), with **Posts and Comments** permissions
-- A Reddit **script** app (client id/secret)
-- Small VM friendly: CPU-only install, no CUDA required
+- Ban, mute, or anything beyond standard “report” actions
+- Track outcomes for items it didn’t report
 
 ---
 
-## Quick Start
+## Quick start
 
-### 1) Clone and set up venv
+### 1) Requirements
+
+- Python 3.10+ (3.12 recommended)
+- A Reddit script app (client id/secret) with a mod account
+- Optional: a Discord channel webhook URL (for per‑item pings and/or weekly summary)
+
+### 2) Create and activate a venv
 
 ```bash
-# SSH (recommended)
-git clone git@github.com:RedditModBot/RedditToxicReportBot.git
-cd RedditToxicReportBot
+python3 -m venv .venv
+source .venv/bin/activate
+```
 
-# Or HTTPS
-# git clone https://github.com/RedditModBot/RedditToxicReportBot.git
-# cd RedditToxicReportBot
+### 3) Install dependencies
 
-python3.10 -m venv .venv310
-source .venv310/bin/activate
-pip install -U pip wheel
+```bash
+pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 ```
 
-### 2) Configure `.env`
+### 4) Configure environment
 
-Create a file named `.env` in the repo root using this template:
-
-```dotenv
-# =========================
-# Reddit credentials
-# =========================
-REDDIT_CLIENT_ID=your_client_id
-REDDIT_CLIENT_SECRET=your_client_secret
-REDDIT_USERNAME=YourBotUser
-REDDIT_PASSWORD=your_bot_password
-REDDIT_USER_AGENT=tox-report-bot/1.1 by u/YourBotUser
-
-# =========================
-# Subreddits to monitor (comma-separated, no spaces)
-# =========================
-SUBREDDITS=ToxicReportBotTest
-
-# =========================
-# Scoring & thresholds
-# =========================
-# Detoxify checkpoint: 'original' (more aggressive) or 'unbiased' (more conservative)
-DETOXIFY_VARIANT=original
-
-# Optional Hugging Face classifier (extra signal)
-ENABLE_HF=true
-HF_MODEL_ID=unitary/unbiased-toxic-roberta
-HF_LABEL=OFFENSIVE
-HF_MAX_SEQ_LEN=256
-
-# Primary toxicity threshold for filing a report
-THRESHOLD=0.71
-
-# Confidence buckets for verdict text
-CONF_MEDIUM=0.80
-CONF_HIGH=0.90
-CONF_VERY_HIGH=0.95
-
-# =========================
-# Reporting behavior
-# =========================
-# moderator = file a moderator report (requires mod permissions)
-# user      = file a standard user report
-REPORT_AS=moderator
-
-# Final report reason shown in Reddit UI
-# Tokens: {verdict}, {confidence}
-REPORT_STYLE=simple
-REPORT_REASON_TEMPLATE=ToxicReportBot: {verdict} (confidence: {confidence}).
-
-# Master switch for Reddit reporting
-ENABLE_REDDIT_REPORTS=true
-
-# Optional UI routing bucket (leave blank to skip). Examples: Harassment, Hate
-REPORT_RULE_BUCKET=
-
-# =========================
-# Discord (optional)
-# =========================
-ENABLE_DISCORD=false
-DISCORD_WEBHOOK=
-
-# =========================
-# Runtime controls
-# =========================
-INTERVAL_SEC=20
-LIMIT=120
-STATE_PATH=reported_ids.jsonl
-LOG_LEVEL=INFO
-
-# If true, log verdicts but DO NOT file reports
-DRY_RUN=false
-```
-
-### 3) Run the bot
+Copy the template and edit:
 
 ```bash
-source .venv310/bin/activate
+cp .env.example .env
+nano .env
+```
+
+All options are documented below.
+
+### 5) Run the bot
+
+```bash
 python bot.py
 ```
 
 You should see logs like:
 
-```
-INFO | Logged in as u/YourBotUser
-INFO | Monitoring: r/ToxicReportBotTest
-INFO | Reported t1_abcd1234 | detox=0.93 hf=0.71 | reason="ToxicReportBot: TOXIC (confidence: high)."
-```
-
----
-
-## How scoring works
-
-- **Detoxify** is the primary decision signal. We use its `toxicity` probability and compare it to `THRESHOLD`.
-- **Hugging Face** classifier is optional and informational. Default model `unitary/unbiased-toxic-roberta` with label `OFFENSIVE`. This number does not gate reporting unless you add your own logic.
-- Confidence wording:
-  - `< CONF_MEDIUM` → “medium”
-  - `>= CONF_HIGH` → “high”
-  - `>= CONF_VERY_HIGH` → “very high”
-
-Final reason example:
-
-```
-ToxicReportBot: TOXIC (confidence: high).
+```text
+YYYY-mm-dd HH:MM:SS | INFO | Authenticated as u/<yourbot>
+YYYY-mm-dd HH:MM:SS | INFO | Building weekly summary (if due)...
+YYYY-mm-dd HH:MM:SS | INFO | Starting ToxicReportBot; tracking <N> previously-reported items
+YYYY-mm-dd HH:MM:SS | INFO | SCAN t1_abcd123 | 0.9342 | HIGH | ufos
 ```
 
----
+If a comment crosses the threshold, the bot logs the scan and writes a second entry setting `reported: true` and issues a Reddit report (unless `DRY_RUN=true`).
 
-## De-duplication
+## Files it writes
 
-The bot tracks already reported items in `STATE_PATH` (JSON Lines). If an ID exists, it won’t be reported again.
+### `reported_ids.jsonl`
 
-- Do not commit `reported_ids.jsonl`.
-- Delete it only if you understand that older items may be re-reported.
+Every scan, plus a second record for items the bot reported. Keys:
 
----
+- `id` (t1_xxx or t3_xxx)
+- `subreddit`
+- `verdict` (`TOXIC` or `NOT TOXIC`)
+- `tox` (float)
+- `reported` (bool)
+- `ts` (Unix seconds)
 
-## Discord webhook (optional)
+### `report_outcomes.jsonl`
 
-Set these and the bot will post a compact summary in your channel:
+Outcomes the daily refresher finds in the modlog for items the bot reported. Keys:
 
-```dotenv
-ENABLE_DISCORD=true
-DISCORD_WEBHOOK=https://discord.com/api/webhooks/...
+- `id` (t1_/t3_ or bare id)
+- `subreddit`
+- `ts` (action timestamp)
+- `action` (`removed` or `approved`)
+- `raw_action` (exact modlog action)
+- `details`, `description` (best‑effort fields if available)
+
+### `summary_state.json`
+
+Stores `{"last_post_ts": <unix-seconds>}` for the weekly summary throttle.
+
+## Weekly summary (Discord)
+
+The weekly summary compares the current full interval to the previous one and excludes any “top reasons” list on purpose. It includes:
+
+- Current threshold
+- Average toxicity this week (all scanned) plus delta vs prior week
+- Total reported comments plus delta
+- Reported comments removed by mods plus delta
+  - (only counts items the bot reported)
+- Reports ignored (left up) plus delta
+  - (reported and older than the decision lag with no removal/approval)
+- % of reports aligned with mod removal plus delta
+- Pending decisions within your configured lag window
+
+Posting is controlled by:
+
+- `ENABLE_WEEKLY_SUMMARY`
+- `SUMMARY_DISCORD_WEBHOOK`
+- `SUMMARY_INTERVAL_DAYS`
+- `SUMMARY_STATE_PATH`
+
+You can force a re‑calculation/post by deleting `summary_state.json` and restarting the bot.
+
+## Outcome refresh (daily)
+
+A background thread runs roughly every `OUTCOMES_REFRESH_HOURS` hours:
+
+1. Looks back `MODLOG_LOOKBACK_DAYS`
+2. Reads up to `MODLOG_MAX_ACTIONS` mod actions
+3. Matches only against items the bot reported in that window
+4. Writes outcomes to `report_outcomes.jsonl`
+5. Sleeps `MODLOG_SLEEP_SECS` every `MODLOG_SLEEP_EVERY` actions to avoid rate limits
+
+If your subreddit is very large, raise `MODLOG_MAX_ACTIONS` and consider a longer lookback only if you need it. More actions means more API requests.
+
+## Configuration (`.env`)
+
+All values are read from `.env`. Booleans accept `true/false/1/0/yes/no`.
+
+### Reddit credentials
+
+```ini
+REDDIT_CLIENT_ID=
+REDDIT_CLIENT_SECRET=
+REDDIT_USERNAME=
+REDDIT_PASSWORD=
+REDDIT_USER_AGENT=tox-report-bot/1.0 by u/yourname
 ```
 
----
+The account must have mod permissions in the target sub(s) to read modlog and report.
 
-## Systemd service (optional)
+### Subreddits
 
-Create `/etc/systemd/system/reddit-tox.service`:
+```ini
+SUBREDDITS=
+```
+
+Comma‑separated list, no spaces: `sub1,sub2`.
+
+### Scoring
+
+```ini
+DETOXIFY_VARIANT=unbiased  # original | unbiased | multilingual
+THRESHOLD=0.85             # report threshold
+CONF_MEDIUM=0.86           # log label only
+CONF_HIGH=0.90
+CONF_VERY_HIGH=0.95
+```
+
+Optional offline model directory to avoid internet access:
+
+```ini
+DETOXIFY_LOCAL_DIR=/path/to/models/detoxify-unbiased
+```
+
+If set and valid, the bot enables offline mode for transformers/HF.
+
+### Reporting
+
+```ini
+REPORT_AS=moderator          # display only (not used by APIs)
+REPORT_STYLE=simple          # display only
+REPORT_REASON_TEMPLATE=ToxicReportBot: {verdict} (confidence: {confidence}).
+REPORT_RULE_BUCKET=          # optional bucket/rule name to include in reason
+ENABLE_REDDIT_REPORTS=true   # set false to only log
+DRY_RUN=false                # true: never call Reddit.report()
+```
+
+### Discord
+
+Per‑item pings (optional):
+
+```ini
+ENABLE_DISCORD=false
+DISCORD_WEBHOOK=
+```
+
+Weekly summary:
+
+```ini
+ENABLE_WEEKLY_SUMMARY=true
+SUMMARY_DISCORD_WEBHOOK=https://discord.com/api/webhooks/...
+SUMMARY_INTERVAL_DAYS=7
+SUMMARY_STATE_PATH=summary_state.json
+```
+
+### Outcome tracking
+
+```ini
+DECISIONS_PATH=report_outcomes.jsonl
+DECISION_LAG_HOURS=72         # “pending” window in the summary
+ENABLE_MOD_REASON_LOOKUP=true # not used for reasons list; harmless to leave true
+MODLOG_LOOKBACK_DAYS=14       # daily refresher lookback
+MODLOG_MAX_ACTIONS=100000     # ceiling on actions to fetch
+MODLOG_SLEEP_EVERY=250        # pace the API calls
+MODLOG_SLEEP_SECS=2.0
+OUTCOMES_REFRESH_HOURS=24     # cadence of the background refresher
+```
+
+### Runtime
+
+```ini
+INTERVAL_SEC=20      # polite pacing between stream cycles
+LIMIT=120            # not used by the stream, kept for compatibility
+STATE_PATH=reported_ids.jsonl
+LOG_LEVEL=INFO       # DEBUG, INFO, WARNING, ERROR
+```
+
+Set `LOG_LEVEL=INFO` to see one line for every scanned comment.
+
+## Tips & troubleshooting
+
+### No weekly summary yet
+
+It only posts when the last post time is older than `SUMMARY_INTERVAL_DAYS`. Delete `summary_state.json` to force a re‑post.
+
+### Numbers look “too high” or “too low”
+
+The summary includes only outcomes for items the bot actually reported in the window. “Left up” means reported, older than `DECISION_LAG_HOURS`, and still no removal/approval found.
+
+### Heavy subs / rate limits
+
+Increase `MODLOG_SLEEP_SECS` or lower `MODLOG_SLEEP_EVERY`. If you’re missing outcomes, raise `MODLOG_MAX_ACTIONS` and keep `MODLOG_LOOKBACK_DAYS` at 14.
+
+### Offline model
+
+Put the Detoxify checkpoint/config in `DETOXIFY_LOCAL_DIR`. The bot will set `TRANSFORMERS_OFFLINE=1` and avoid network calls.
+
+## Run as a service (optional)
+
+Create `/etc/systemd/system/toxicreportbot.service`:
 
 ```ini
 [Unit]
-Description=Reddit Toxic Report Bot
+Description=ToxicReportBot
 After=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/RedditToxicReportBot
-Environment=PYTHONUNBUFFERED=1
-EnvironmentFile=/home/ubuntu/RedditToxicReportBot/.env
-ExecStart=/home/ubuntu/RedditToxicReportBot/.venv310/bin/python /home/ubuntu/RedditToxicReportBot/bot.py
-Restart=on-failure
+WorkingDirectory=/home/ubuntu/report-bot
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/ubuntu/report-bot/.venv/bin/python /home/ubuntu/report-bot/bot.py
+Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Enable and start:
+Then:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable reddit-tox.service
-sudo systemctl start reddit-tox.service
-sudo systemctl status reddit-tox.service
+sudo systemctl enable --now toxicreportbot
+journalctl -u toxicreportbot -f
 ```
+
+## Data retention
+
+All logs are local JSONL files. Rotate or archive them on your own schedule. Deleting `report_outcomes.jsonl` removes historic decisions; deleting `summary_state.json` only resets the weekly‑post timer.
+
+## Safety
+
+- The bot issues reports only. It never removes content.
+- Use `DRY_RUN=true` to validate behavior without touching Reddit.
+- Keep your `.env` out of version control.
 
 ---
 
-## Troubleshooting
+### `.env.example`
 
-### 401 from Reddit after it worked before
-- Verify the bot user can still log in via web (no captcha/lockout).
-- Ensure the **script** app is the one you’re using, not an installed app type.
-- Check `.env` vars are actually loaded in the running context (`EnvironmentFile` in systemd, or exported in your shell).
-- Rotate the app secret if compromised.
+```dotenv
+# ---------- Reddit ----------
+REDDIT_CLIENT_ID=
+REDDIT_CLIENT_SECRET=
+REDDIT_USERNAME=
+REDDIT_PASSWORD=
+REDDIT_USER_AGENT=tox-report-bot/1.0 by u/yourname
 
-### Hugging Face number looks “different” than the old bot
-- Detoxify and HF models are trained differently and are not numerically comparable. That’s normal. We trust Detoxify for the main decision. HF is an extra signal for continuity.
+# ---------- Subreddits ----------
+SUBREDDITS=ufos
 
-### It’s downloading giant GPU things
-- This project is CPU-only. If you see CUDA junk, you installed the wrong wheels. Recreate venv and install from `requirements.txt` shipped here.
+# ---------- Scoring ----------
+DETOXIFY_VARIANT=unbiased # original | unbiased | multilingual
+THRESHOLD=0.85
+CONF_MEDIUM=0.86
+CONF_HIGH=0.90
+CONF_VERY_HIGH=0.95
 
----
+# Optional: point to a local Detoxify checkpoint to run offline
+DETOXIFY_LOCAL_DIR=
 
-## Git hygiene
+# ---------- Reporting ----------
+REPORT_AS=moderator
+REPORT_STYLE=simple
+REPORT_REASON_TEMPLATE=ToxicReportBot: {verdict} (confidence: {confidence}).
+REPORT_RULE_BUCKET=
+ENABLE_REDDIT_REPORTS=true
+DRY_RUN=false
 
-A `.gitignore` is included to keep the repo tiny:
+# ---------- Discord (per-item pings; optional) ----------
+ENABLE_DISCORD=false
+DISCORD_WEBHOOK=
 
+# ---------- Weekly summary (Discord) ----------
+ENABLE_WEEKLY_SUMMARY=true
+SUMMARY_DISCORD_WEBHOOK=
+SUMMARY_INTERVAL_DAYS=7
+SUMMARY_STATE_PATH=summary_state.json
+
+# ---------- Outcome tracking ----------
+DECISIONS_PATH=report_outcomes.jsonl
+DECISION_LAG_HOURS=72
+ENABLE_MOD_REASON_LOOKUP=true
+MODLOG_LOOKBACK_DAYS=14
+MODLOG_MAX_ACTIONS=100000
+MODLOG_SLEEP_EVERY=250
+MODLOG_SLEEP_SECS=2.0
+OUTCOMES_REFRESH_HOURS=24
+
+# ---------- Runtime ----------
+INTERVAL_SEC=20
+LIMIT=120
+STATE_PATH=reported_ids.jsonl
+LOG_LEVEL=INFO
 ```
-# venvs
-.venv*/
-venv*/
-
-# Python cruft
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.egg-info/
-
-# Local config / secrets / state
-.env
-.env.*
-reported_ids.jsonl
-*.log
-
-# Model + cache directories (keep this repo light)
-.cache/
-cache/
-data/
-models/
-checkpoints/
-
-# Tool caches
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-
-# OS
-.DS_Store
-```
-
----
-
-## License
-
-MIT. Don’t be a menace.
