@@ -135,15 +135,15 @@
       "yid", "heeb", "hymie",
       "wog", "abo", "boong",
       "guido", "guinea",
-      "slope", "sloper",
+      "sloper",
       "darkie", "darky",
       "wigger", "wigga",
       "uncle tom",
-      "spade", "sambo",
+      "sambo",
       "chinky", "gooky", "slanty"
     ],
     
-    "sexual_orientation": ["queer", "homo"],
+    "sexual_orientation": ["homo"],
     "trans_context": ["trap", "ladyboy", "he/she", "he-she"],
     "disability_context": ["autist", "autistic", "spaz", "spastic", "special needs", "short bus"],
     "religion_mocking": ["sky fairy", "sky daddy"],
