@@ -1,0 +1,12 @@
+# Reddit API
+praw>=7.7.0
+
+# Environment variable loading
+python-dotenv>=1.0.0
+
+# Groq API (FREE tier!)
+groq>=0.4.0
+
+# Detoxify for pre-filtering (runs locally)
+# NOTE: Install torch CPU-only FIRST before detoxify to avoid CUDA bloat
+detoxify>=0.5.0
