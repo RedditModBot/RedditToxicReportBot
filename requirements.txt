@@ -1,17 +1,12 @@
-# Core bot
-praw==7.8.1
-python-dotenv>=1.0.1
-requests>=2.32.3
-tqdm>=4.65
+# Reddit API
+praw>=7.7.0
 
-# Torch first (CPU build assumed is already installed separately on some hosts)
-torch>=2.4.0
+# Environment variable loading
+python-dotenv>=1.0.0
 
-# Detoxify (no ancient transformers pin)
-detoxify==0.5.2
+# Groq API (FREE tier!)
+groq>=0.4.0
 
-# HF stack with manylinux wheels (no Rust build)
-transformers==4.57.1
-tokenizers==0.22.1
-huggingface-hub==0.36.0
-sentencepiece==0.2.1
+# Detoxify for pre-filtering (runs locally)
+# NOTE: Install torch CPU-only FIRST before detoxify to avoid CUDA bloat
+detoxify>=0.5.0

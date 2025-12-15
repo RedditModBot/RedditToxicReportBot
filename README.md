@@ -1,323 +1,575 @@
-# Reddit Toxic Report Bot: Composite Scoring Edition
+# ToxicReportBot v2
 
-This bot scans comments in one or more subreddits, scores them for toxicity, optionally reports to Reddit (mod-report). Also posts an optional weekly summary to Discord. It supports an ensemble (composite) score using multiple Toxicty models, as well as a periodic modlog refresh to reconcile outcomes, and detailed, configurable logging.
+An automated Reddit moderation bot that uses AI to detect and report toxic comments. Built for r/UFOs but configurable for any subreddit.
 
-## Highlights
+## How It Works
 
-- **Composite scoring**: Detoxify + Offensiveness + Hate/Identity with configurable weights and threshold.
-- **Rolling modlog refresh**: fetches mod actions regularly and updates outcomes without duplicates.
-- **Weekly Discord summary**: precision-friendly metrics, trend deltas vs. prior week.
-- **Verbose scan logs**: see composite and per-model components (and optionally comment text).
-
-## Quick start (Ubuntu)
-
-```bash
-git clone git@github.com:RedditModBot/RedditToxicReportBot.git
-cd RedditToxicReportBot
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-cp .env.example .env  # or paste your values into .env
-nano .env             # fill in Reddit + Discord + options
-python bot.py
+```
+COMMENT ARRIVES
+       │
+       ▼
+┌──────────────────────────────────────┐
+│  Step 1: PATTERN MATCHING            │
+│  Check for slurs, threats, insults   │
+└──────────────────────────────────────┘
+       │
+       ├── Match found ──────────────────────────┐
+       │                                         │
+       ▼                                         │
+┌──────────────────────────────────────┐         │
+│  Step 2: BENIGN PHRASE CHECK         │         │
+│  "holy shit", "this is fake", etc    │         │
+└──────────────────────────────────────┘         │
+       │                                         │
+       ├── Benign + not directed ── SKIP         │
+       │                                         │
+       ▼                                         │
+┌──────────────────────────────────────┐         │
+│  Step 3: DETOXIFY ML SCORING         │         │
+│  Score 0.0 to 1.0 on toxicity        │         │
+└──────────────────────────────────────┘         │
+       │                                         │
+       ├── Below threshold ──────── SKIP         │
+       │                                         │
+       ▼                                         │
+┌──────────────────────────────────────┐         │
+│  Step 4: AI REVIEW  ◄──────────────────────────┘
+│  Send to Groq LLM with context       │
+└──────────────────────────────────────┘
+       │
+       ├── BENIGN ──────────────── No action (✅)
+       │
+       ▼
+┌──────────────────────────────────────┐
+│  REPORT TO REDDIT (🚨)               │
+│  Track for accuracy                  │
+└──────────────────────────────────────┘
+       │
+       ▼ (after 24h)
+┌──────────────────────────────────────┐
+│  ACCURACY CHECK                      │
+│  Removed? ✓ True positive            │
+│  Still up? ⚠️ False positive          │
+└──────────────────────────────────────┘
 ```
 
-If you see `Authenticated as u/None`, your Reddit env vars are missing or not loading. See **Troubleshooting**.
+### Step-by-Step Breakdown
+
+**Step 1: Pattern Matching**
+
+Checks `moderation_patterns.json` for known bad patterns:
+- Slurs (racial, homophobic, ableist, etc.)
+- Self-harm phrases ("kill yourself", "kys")
+- Threat phrases ("I'll find you", "you're dead")
+- Shill accusations directed at users ("you're a fed")
+- Direct insults at users ("you're an idiot")
+
+If ANY match → immediately send to AI for review.
+
+**Step 2: Benign Phrase Check**
+
+Checks if comment is clearly harmless:
+- Excitement: "holy shit", "what the fuck", "no way"
+- UFO context: "crazy footage", "insane video"
+- Skepticism: "this is fake", "obviously a drone"
+
+If matches AND not directed at a user → skip entirely (saves API calls).
+
+**Step 3: Detoxify ML Scoring**
+
+Local ML model scores comment 0.0 to 1.0:
+
+| Label | Directed at User | Not Directed |
+|-------|------------------|--------------|
+| threat | 0.15 | 0.15 |
+| severe_toxicity | 0.20 | 0.20 |
+| identity_attack | 0.25 | 0.25 |
+| insult | 0.40 | 0.60 |
+| toxicity | 0.40 | 0.50 |
+| obscene | 0.90 | 0.90 |
+
+"Directed" = contains "you", "your", "OP", or is a reply.
+
+**Step 4: AI Review**
+
+Sends to Groq LLM with full context:
+- Your moderation guidelines
+- Whether it's a `[TOP-LEVEL]` or `[REPLY]`
+- Post title and parent comment
+- The comment text
+
+AI returns: `VERDICT: REPORT` or `VERDICT: BENIGN` with a reason.
+
+**Model Fallback Chain** (if rate limited):
+1. `groq/compound` (best quality)
+2. `llama-3.3-70b-versatile`
+3. `llama-4-scout-17b`
+4. `llama-3.1-8b-instant`
+
+---
+
+## What Gets Reported vs Ignored
+
+### ✅ Gets Reported
+- Direct insults at other users ("you're an idiot", "what a moron")
+- Slurs and hate speech (including obfuscated: "n1gger", "f4g")
+- Threats ("I'll find you", "you're dead")
+- Self-harm encouragement ("kill yourself", "kys")
+- Shill/bot accusations at users ("you're a fed", "obvious bot")
+- Calls for violence ("someone should shoot that", "laser the plane")
+
+### ❌ Does NOT Get Reported
+- Criticizing ideas ("that theory is nonsense", "this has been debunked")
+- Criticizing public figures ("Corbell is a grifter", "Greer is a fraud")
+- Profanity for emphasis ("holy shit that's crazy", "what the fuck")
+- Skepticism ("this is obviously fake", "that's just Starlink")
+- Venting about the subreddit ("this sub sucks", "mods are useless")
+- Disagreement ("you're wrong", "I completely disagree")
+
+---
+
+## Understanding moderation_patterns.json
+
+This file contains word/phrase lists that the bot uses for fast pre-filtering BEFORE calling the AI. It's organized into categories:
+
+### Slurs (Always escalate to AI)
+
+```json
+"slurs": {
+  "racial": ["n-word variants", "..."],
+  "homophobic_hard": ["f-word variants", "..."],
+  "transphobic_hard": ["tranny", "..."],
+  "ableist_hard": ["retard", "..."]
+}
+```
+
+These are high-confidence bad words that almost always indicate a problem. Any match immediately sends the comment to the AI for review.
+
+### Contextual Sensitive Terms (Escalate with additional signals)
+
+```json
+"contextual_sensitive_terms": {
+  "racial_ambiguous": ["negro", "cracker", "gringo", "..."],
+  "sexual_orientation": ["homo", "queer", "..."],
+  "ideology_terms": ["white power", "nazi", "..."]
+}
+```
+
+These words CAN be used in neutral contexts (historical discussion, quoting, reclaimed terms). They only escalate if:
+- Directed at a user ("you're just a [term]"), OR
+- Combined with high identity_attack score from Detoxify
+
+### Insults (Escalate when directed at users)
+
+```json
+"insults_direct": {
+  "intelligence": ["idiot", "moron", "dumbass", "..."],
+  "character": ["loser", "pathetic", "scumbag", "..."],
+  "mental_health": ["take your meds", "you're crazy", "..."]
+}
+```
+
+These escalate when the comment appears to be targeting another user (contains "you", "your", "OP", or is a reply).
+
+### Threats & Self-Harm (Always escalate)
+
+```json
+"threats": {
+  "direct": ["I'll kill you", "you're dead", "..."],
+  "implied": ["watch your back", "I know where you live", "..."]
+},
+"self_harm": {
+  "direct": ["kill yourself", "kys", "..."],
+  "indirect": ["world would be better without you", "..."]
+}
+```
+
+High-priority patterns that always go to the AI.
+
+### Benign Skip Phrases (Skip AI entirely)
+
+```json
+"benign_skip": {
+  "excitement_phrases": ["holy shit", "what the fuck", "..."],
+  "ufo_context_phrases": ["crazy footage", "insane video", "..."],
+  "skeptic_phrases": ["this is fake", "obviously a drone", "..."]
+}
+```
+
+When a short comment matches these AND isn't directed at a user, skip the AI entirely. Saves API calls on obviously-fine comments.
+
+### How Pattern Matching Works
+
+1. **Word boundary matching** - "cope" won't match "telescope", "pos" won't match "possessive"
+2. **Normalization** - "n1gg3r" gets normalized to check against patterns
+3. **Directedness check** - Many patterns only escalate when aimed at a user
+4. **Context awareness** - Top-level comments vs replies are treated differently
+
+---
+
+## Features
+
+- **Smart pre-filtering** - Only ~5% of comments use your API quota
+- **Context-aware** - Knows if it's a reply vs top-level, who's being targeted
+- **Public figure detection** - Understands UFO community figures (Grusch, Elizondo, Corbell, etc.)
+- **Model fallback chain** - Automatically switches models if rate limited
+- **Discord notifications** - Real-time alerts for reports, verdicts, and daily stats
+- **Accuracy tracking** - Logs false positives for tuning
+- **Dry run mode** - Test without actually reporting
+
+---
 
 ## Requirements
 
-- Python 3.11+ recommended
-- A Reddit account capable of reporting posts/comments in your subreddit(s)
-- Optional: a Discord webhook for weekly summaries (or per-item pings if you enable them)
+- Python 3.9+
+- Reddit account with mod permissions (for moderator reports)
+- Groq API key (free at https://console.groq.com)
+- Discord webhook (optional, for notifications)
 
-## How it works
+---
 
-1. **Comment stream**: the bot streams new comments from `SUBREDDITS`.
-2. **Scoring**  
-   - If `COMPOSITE_ENABLE=true`, it computes `COMPOSITE = w_detox*Detoxify + w_off*Offensive + w_hate*Hate`.
-   - Otherwise it uses Detoxify alone.
-3. **Decision**  
-   - If the active threshold is hit, the bot reports (unless `DRY_RUN=true`) and writes a row to `STATE_PATH` (`reported_ids.jsonl`).
-4. **Modlog refresh**  
-   - Runs on a background schedule. It pulls mod actions for the lookback window and writes normalized rows to `DECISIONS_PATH` (`report_outcomes.jsonl`).
-5. **Weekly summary**  
-   - When due, reads both files, builds 7-day metrics with deltas vs prior week, and posts to Discord. State is tracked in `SUMMARY_STATE_PATH`.
+## Quick Start
 
-## Configuration (`.env`)
-
-Copy this template and adjust. Every option below matches the current bot.
-
-```ini
-# ========= Reddit auth =========
-REDDIT_CLIENT_ID=
-REDDIT_CLIENT_SECRET=
-REDDIT_USERNAME=
-REDDIT_PASSWORD=
-REDDIT_USER_AGENT=tox-report-bot/1.3 by u/<your-user>
-
-# ========= Subreddits =========
-SUBREDDITS=ufos  # comma-separated for multiples, case-insensitive
-
-# ========= Scoring / Models =========
-DETOXIFY_VARIANT=unbiased  # original | unbiased | multilingual
-
-# Composite controls
-COMPOSITE_ENABLE=true      # true = use ensemble; false = Detoxify-only
-COMPOSITE_WEIGHTS=0.45,0.35,0.20  # Detoxify, Offensiveness, Hate (sum need not be 1.0)
-COMPOSITE_THRESHOLD=0.85   # 0..1 composite trigger threshold
-
-# Optional logging for diagnostics
-LOG_SHOW_COMPONENTS=true   # include per-model scores (Detox, Off, Hate) in SCAN log
-LOG_SHOW_COMMENT=false     # print comment text in SCAN log (noisy; consider false in production)
-
-# HuggingFace pipelines (you tested these locally)
-OFFENSIVE_MODEL=unitary/toxic-bert
-HATE_MODEL=Hate-speech-CNERG/dehatebert-mono-english
-TEXT_NORMALIZE=false       # if true, light text normalization before scoring
-
-# Lexicon (currently disabled in scoring; keep empty)
-LEXICON_PATH=
-
-# Confidence bands (used to decorate reasons/logs)
-CONF_MEDIUM=0.85
-CONF_HIGH=0.95
-CONF_VERY_HIGH=0.98
-
-# ========= Local model cache (optional) =========
-# DETOXIFY_LOCAL_DIR=/path/to/models/detoxify-unbiased
-
-# ========= Reporting to Reddit =========
-REPORT_AS=moderator
-REPORT_STYLE=simple
-REPORT_REASON_TEMPLATE={verdict} (confidence: {confidence}).
-REPORT_RULE_BUCKET=
-ENABLE_REDDIT_REPORTS=true
-DRY_RUN=false              # true = don’t actually report, still logs everything
-
-# ========= Discord (per-item pings) =========
-ENABLE_DISCORD=false
-DISCORD_WEBHOOK=
-
-# ========= Weekly summary (Discord) =========
-ENABLE_WEEKLY_SUMMARY=true
-SUMMARY_DISCORD_WEBHOOK=
-SUMMARY_INTERVAL_DAYS=7
-SUMMARY_STATE_PATH=summary_state.json
-SUMMARY_INCLUDE_TOP_REASONS=false  # keep false to hide clutter you dislike
-
-# ========= Outcomes + decision window =========
-DECISIONS_PATH=report_outcomes.jsonl
-DECISION_LAG_HOURS=12      # window before treating “left up” as decided
-
-# ========= Modlog refresh (background) =========
-MODLOG_LOOKBACK_DAYS=2
-MODLOG_LIMIT=100000
-MODLOG_REFRESH_INTERVAL_HOURS=4
-MODLOG_REFRESH_JITTER_MIN=10
-MODLOG_PER_REQUEST_SLEEP=0.05
-
-# ========= Runtime =========
-INTERVAL_SEC=20            # sleep between stream polls
-LIMIT=120                  # PRAW listing page size
-STATE_PATH=reported_ids.jsonl
-LOG_LEVEL=INFO             # DEBUG | INFO | WARNING | ERROR
-LOG_SCAN=1                 # 1 = log every scan; 0 = only important events
-```
-
-### What each group does
-
-- **Reddit auth**: required. All five must be non-empty, or you will see `Authenticated as u/None`.
-- **Subreddits**: target subreddits to monitor. Comma-separated.
-- **Scoring / Models**:  
-  - `COMPOSITE_ENABLE=true` turns on the ensemble. If false, only Detoxify is used and the legacy threshold would apply. The ensemble is recommended.
-  - `COMPOSITE_WEIGHTS` and `COMPOSITE_THRESHOLD` control the decision boundary.
-  - `LOG_SHOW_COMPONENTS=true` prints per-model parts of the score for debugging.
-  - `LOG_SHOW_COMMENT=true` prints the actual comment text in logs. Useful for audits; noisy and potentially sensitive.
-  - `OFFENSIVE_MODEL` and `HATE_MODEL` are HuggingFace pipeline models. Defaults match local tests.
-  - `TEXT_NORMALIZE` allows a light normalizer before scoring. Off by default to preserve raw semantics.
-- **Lexicon**: `LEXICON_PATH` is ignored by the current bot. Leave it empty.
-- **Reporting**: `DRY_RUN=true` does everything except report to Reddit. `REPORT_REASON_TEMPLATE` supports `{verdict}` and `{confidence}`.
-- **Discord**: per-item pings are off by default. Weekly summary uses `SUMMARY_DISCORD_WEBHOOK`.
-- **Weekly summary**: posts when `SUMMARY_INTERVAL_DAYS` has elapsed since the prior summary time stored in `SUMMARY_STATE_PATH`. If `SUMMARY_STATE_PATH` is missing or unreadable the bot assumes a first run and posts.
-- **Outcomes**: `DECISION_LAG_HOURS` is the window before “left up” is treated as decided.
-- **Modlog refresh**: background task that pulls mod actions every `MODLOG_REFRESH_INTERVAL_HOURS` plus small random jitter to avoid thundering herds. It looks back `MODLOG_LOOKBACK_DAYS` and writes normalized rows to `DECISIONS_PATH`. Actions are deduped by `(target_fullname, action, timestamp)`. `MODLOG_PER_REQUEST_SLEEP` reduces API errors and rate limiting.
-- **Runtime**: stream pacing and log verbosity. Set `LOG_LEVEL=DEBUG` for deeper diagnostics.
-
-## Files and formats
-
-- **`STATE_PATH`** (default `reported_ids.jsonl`)  
-  Append-only JSONL. One row per scanned item; includes `target_fullname`, tox or composite, verdict, reported flag, and timestamp.
-- **`DECISIONS_PATH`** (default `report_outcomes.jsonl`)  
-  Append-only JSONL of mod actions (approve/remove) normalized to the target fullname. Idempotent writes; safe across restarts.
-- **`SUMMARY_STATE_PATH`** (default `summary_state.json`)  
-  JSON with `last_run` timestamp and a few cached counters. If you delete it, the next run posts immediately.
-
-All IDs are normalized to `target_fullname` like `t1_abcdefg` for comments and `t3_xyz` for submissions.
-
-## Metrics (weekly summary)
-
-- **Average toxicity (all scanned)**: mean over all scanned items in the 7-day window. In composite mode it displays the composite mean; Detox-only mode uses Detoxify.
-- **Average toxicity (reported)**: mean of items actually reported.
-- **Total reported comments**: count of rows in `STATE_PATH` with `reported=true` in the window.
-- **Removed / Approved**: from `DECISIONS_PATH` where mod action matches and target falls in the window.
-- **Left up (past lag)**: reported items older than `DECISION_LAG_HOURS` without an approve/remove action.
-- **Pending (within lag)**: reported items newer than `DECISION_LAG_HOURS`.
-- **% aligned**: `removed / reported`, clamped to 0–100%.
-- Each metric also shows delta vs prior week when prior data exists. If not, the report shows `(+∞% vs prior)` for new series.
-
-## Forcing a weekly summary
-
-Pick one:
-
-- Delete or rename `SUMMARY_STATE_PATH` then run the bot.
-- Temporarily set `SUMMARY_INTERVAL_DAYS=0`, run once, then set it back.
-- Manually edit `summary_state.json` and set `last_run` to a very old timestamp.
-
-## Logging
-
-Every scan line looks like:
-
-```
-2025-11-07 20:17:19 | INFO | SCAN t1_nnnkvb8 | COMP=0.936 (detox=0.88 off=0.74 hate=0.12) | LOW | UFOs | "Nobody knows"...
-```
-
-- Enable components with `LOG_SHOW_COMPONENTS=true`.
-- Enable full text with `LOG_SHOW_COMMENT=true`.
-
-Reports look like:
-
-```
-Reported comment t1_abc123 @ 0.96:
-https://www.reddit.com/r/<sub>/comments/<post>/<comment_id>/
-```
-
-If you only see “tracking N previously-reported items,” give it a moment to connect to the stream. Use `LOG_LEVEL=DEBUG` to see the paging.
-
-## Rate limits and performance
-
-- The modlog task sleeps `MODLOG_PER_REQUEST_SLEEP` between page fetches and respects `MODLOG_LIMIT`. With large subs, consider:
-  - `MODLOG_LOOKBACK_DAYS=1..2`
-  - `MODLOG_REFRESH_INTERVAL_HOURS=2..6`
-  - `MODLOG_LIMIT=100000` only if you truly need it. Start smaller if you hit 429s.
-- The scanner uses `INTERVAL_SEC` and `LIMIT` to keep stream polling civil.
-
-## Upgrading from older bot versions
-
-- The bot now normalizes IDs to `target_fullname` everywhere. Legacy lines with only `"id": "xxxxx"` are still read, but new writes include `target_fullname`.
-- You do not need to delete state files. The bot de-duplicates outcomes on ingest and skips duplicate writes on restart.
-- Weekly summary state is preserved. If you want to re-post immediately, follow **Forcing a weekly summary**.
-
-## Find the permalink for a comment
+### 1. Clone and install dependencies
 
 ```bash
-curl -s "https://www.reddit.com/api/info.json?id=t1_nnj5yk7" | jq -r '.data.children[0].data.permalink'
+git clone https://github.com/YOUR_USERNAME/toxic-report-bot.git
+cd toxic-report-bot
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-## Systemd (optional)
+### 2. Configure environment
 
-Create `/etc/systemd/system/toxic-report-bot.service`:
+```bash
+cp env.template .env
+# Edit .env with your credentials
+```
+
+### 3. Add your moderation guidelines
+
+Edit `moderation_guidelines.txt` to customize what the AI should report.
+
+### 4. Test in dry run mode
+
+```bash
+# Make sure DRY_RUN=true in .env
+python bot.py
+```
+
+### 5. Go live
+
+```bash
+# Set DRY_RUN=false in .env
+python bot.py
+```
+
+---
+
+## Configuration
+
+All configuration is done via environment variables in a `.env` file. 
+
+### Setting Up Your .env File
+
+1. Copy the template: `cp env.template .env`
+2. Edit `.env` with your credentials
+3. **Never commit `.env` to git** - it contains secrets!
+
+The `env.template` file has detailed comments explaining each option. Here's a quick overview:
+
+### Reddit Credentials
+
+You need to create a Reddit "script" app to get these:
+
+1. Go to https://www.reddit.com/prefs/apps
+2. Click "create another app..."
+3. Select "script"
+4. Fill in name and redirect URI (use `http://localhost:8080`)
+5. Copy the client ID (under the app name) and secret
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `REDDIT_CLIENT_ID` | OAuth app client ID | `Ab3CdEfGhIjKlM` |
+| `REDDIT_CLIENT_SECRET` | OAuth app client secret | `xYz123AbC456DeF789` |
+| `REDDIT_USERNAME` | Bot account username | `ToxicReportBot` |
+| `REDDIT_PASSWORD` | Bot account password | `your_secure_password` |
+| `REDDIT_USER_AGENT` | Identifies your bot to Reddit | `toxic-report-bot/2.0 by u/YourUsername` |
+| `SUBREDDITS` | Comma-separated list | `UFOs` or `UFOs,aliens,UAP` |
+
+### LLM Configuration (Groq)
+
+Get a **free** API key at https://console.groq.com/
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GROQ_API_KEY` | (required) | Your Groq API key (starts with `gsk_`) |
+| `LLM_MODEL` | `groq/compound` | Primary model (see options below) |
+| `LLM_FALLBACK_MODEL` | `llama-3.3-70b-versatile` | Backup when rate limited |
+| `LLM_DAILY_LIMIT` | `240` | Switch to fallback after this many calls |
+| `LLM_REQUESTS_PER_MINUTE` | `2` | Rate limit (1 request per 30 sec) |
+
+**Model options (all free):**
+| Model | Quality | Daily Limit | Best For |
+|-------|---------|-------------|----------|
+| `groq/compound` | Best | 250 | Default choice |
+| `llama-3.3-70b-versatile` | Great | 1,000 | High volume fallback |
+| `llama-3.1-8b-instant` | Good | 14,400 | Very high volume |
+
+### Pre-filter Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DETOXIFY_MODEL` | `original` | `original` (stricter) or `unbiased` (looser) |
+
+Note: The actual thresholds are configured in `bot.py`, not the `.env` file.
+
+### Reporting
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REPORT_AS` | `moderator` | `moderator` (needs mod perms) or `user` |
+| `ENABLE_REDDIT_REPORTS` | `true` | Master switch for reporting |
+| `DRY_RUN` | `false` | `true` = log only, don't actually report |
+
+**Important:** Start with `DRY_RUN=true` to test before going live!
+
+### Discord (Optional)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DISCORD_WEBHOOK` | (empty) | Webhook URL for notifications |
+
+To create a webhook:
+1. Go to your Discord server
+2. Edit a channel → Integrations → Webhooks → New Webhook
+3. Copy the URL
+
+---
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `bot.py` | Main bot code |
+| `moderation_guidelines.txt` | Instructions for the AI on what to report (customize this!) |
+| `moderation_guidelines_template.txt` | Annotated template with explanations for customization |
+| `moderation_patterns.json` | Word lists for pre-filtering (slurs, insults, etc.) |
+| `env.template` | Template for `.env` configuration |
+| `requirements.txt` | Python dependencies |
+| `reported_comments.json` | Auto-generated tracking of reported comments |
+| `false_positives.json` | Auto-generated log of false positives |
+
+---
+
+## Discord Notifications
+
+If configured, the bot sends these notifications:
+
+| Notification | Color | Meaning |
+|--------------|-------|---------|
+| 🤖 Bot Started | Green | Bot is running |
+| ⚪ Borderline Skip | Gray | Scored kinda high but not reviewed |
+| 🔍 Analyzing | Blue | Sending to AI for review |
+| ✅ BENIGN | Green | AI says it's fine |
+| 🚨 REPORT | Red | AI flagged it, reporting |
+| ⚠️ False Positive | Orange | Reported comment wasn't removed |
+| 📈 Daily Stats | Varies | Daily summary at midnight UTC |
+
+---
+
+## Accuracy Tracking
+
+The bot tracks every report to measure how well it's performing. This helps you tune the system over time.
+
+### How It Works
+
+1. **When a comment is reported**, it's logged to `reported_comments.json` with:
+   - Comment ID and permalink
+   - The comment text
+   - Why it was reported (AI's reason)
+   - Detoxify score
+   - Timestamp
+
+2. **Every 12 hours**, the bot checks each reported comment:
+   - Fetches the comment from Reddit
+   - If removed/deleted → **True Positive** (correctly reported)
+   - If still visible → **False Positive** (incorrectly reported)
+
+3. **False positives are logged** to `false_positives.json` for review
+
+4. **Discord notifications** (if enabled):
+   - ⚠️ Orange alert for each new false positive
+   - 📈 Daily stats with accuracy percentage
+
+### Understanding the JSON Files
+
+**reported_comments.json** - All reported comments:
+```json
+{
+  "comment_id": "t1_abc123",
+  "permalink": "https://reddit.com/r/UFOs/comments/.../abc123/",
+  "text": "You're an idiot...",
+  "groq_reason": "Direct insult at user",
+  "detoxify_score": 0.85,
+  "reported_at": "2025-01-15T10:30:00Z",
+  "outcome": "pending",      // or "removed" or "approved"
+  "checked_at": ""
+}
+```
+
+**false_positives.json** - Comments that weren't removed:
+```json
+{
+  "comment_id": "t1_xyz789",
+  "permalink": "https://reddit.com/r/UFOs/comments/.../xyz789/",
+  "text": "This is obviously fake garbage",
+  "groq_reason": "Direct insult at user",
+  "detoxify_score": 0.62,
+  "reported_at": "2025-01-15T08:00:00Z",
+  "discovered_at": "2025-01-16T08:00:00Z"
+}
+```
+
+### Reviewing False Positives
+
+Regularly check `false_positives.json` to understand why the bot made mistakes:
+
+| Common Cause | Solution |
+|--------------|----------|
+| Public figure criticism marked as attack | Add name to public figures list in guidelines |
+| Sarcasm/quotes misunderstood | Add example to benign cases in guidelines |
+| Domain-specific phrase flagged | Add to `benign_skip` in patterns.json |
+| Threshold too aggressive | Raise thresholds in bot.py |
+
+### Accuracy Metrics
+
+The bot calculates:
+- **Accuracy %** = (True Positives) / (True Positives + False Positives) × 100
+- **Pending** = Reports not yet checked (less than 24h old)
+
+A good target is **80%+ accuracy**. Below 60% means too many false positives.
+
+### Data Retention
+
+- `reported_comments.json`: Entries older than 7 days are automatically cleaned up
+- `false_positives.json`: Kept indefinitely for review (manually delete when reviewed)
+
+---
+
+## Running as a Service
+
+For production, run as a systemd service:
 
 ```ini
+# /etc/systemd/system/toxicreportbot.service
 [Unit]
-Description=Toxic Report Bot
+Description=ToxicReportBot
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/ubuntu/report-bot
-ExecStart=/home/ubuntu/report-bot/.venv/bin/python /home/ubuntu/report-bot/bot.py
-Environment="PYTHONUNBUFFERED=1"
-Restart=always
-RestartSec=5
 User=ubuntu
+WorkingDirectory=/home/ubuntu/toxic-report-bot
+Environment=PATH=/home/ubuntu/toxic-report-bot/.venv/bin
+ExecStart=/home/ubuntu/toxic-report-bot/.venv/bin/python bot.py
+Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-Then:
-
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable toxic-report-bot
-sudo systemctl start toxic-report-bot
-journalctl -u toxic-report-bot -f
+sudo systemctl enable toxicreportbot
+sudo systemctl start toxicreportbot
+sudo journalctl -u toxicreportbot -f  # View logs
 ```
 
-## Example `.env.example`
+---
 
-```ini
-# Reddit
-REDDIT_CLIENT_ID=
-REDDIT_CLIENT_SECRET=
-REDDIT_USERNAME=
-REDDIT_PASSWORD=
-REDDIT_USER_AGENT=tox-report-bot/1.3 by u/YourUser
+## Customization
 
-# Subreddits
-SUBREDDITS=ufos
+### Moderation Guidelines
 
-# Scoring
-DETOXIFY_VARIANT=unbiased
-COMPOSITE_ENABLE=true
-COMPOSITE_WEIGHTS=0.45,0.35,0.20
-COMPOSITE_THRESHOLD=0.85
-OFFENSIVE_MODEL=unitary/toxic-bert
-HATE_MODEL=Hate-speech-CNERG/dehatebert-mono-english
-TEXT_NORMALIZE=false
-LOG_SHOW_COMPONENTS=true
-LOG_SHOW_COMMENT=false
-LEXICON_PATH=
-CONF_MEDIUM=0.85
-CONF_HIGH=0.95
-CONF_VERY_HIGH=0.98
+The `moderation_guidelines.txt` file is the "brain" of the bot - it tells the AI exactly what to report and what to ignore. This is where you customize behavior for your subreddit.
 
-# Reporting
-REPORT_AS=moderator
-REPORT_STYLE=simple
-REPORT_REASON_TEMPLATE={verdict} (confidence: {confidence}).
-REPORT_RULE_BUCKET=
-ENABLE_REDDIT_REPORTS=true
-DRY_RUN=false
+**Use `moderation_guidelines_template.txt` as a starting point** - it has detailed comments explaining each section.
 
-# Discord per-item
-ENABLE_DISCORD=false
-DISCORD_WEBHOOK=
+Key sections to customize:
 
-# Weekly summary
-ENABLE_WEEKLY_SUMMARY=true
-SUMMARY_DISCORD_WEBHOOK=
-SUMMARY_INTERVAL_DAYS=7
-SUMMARY_STATE_PATH=summary_state.json
-SUMMARY_INCLUDE_TOP_REASONS=false
+| Section | What to Change |
+|---------|----------------|
+| Subreddit name | Replace `r/YOUR_SUBREDDIT_HERE` |
+| Public figures list | Add people commonly discussed in your community |
+| Shill accusations | Add domain-specific accusations (e.g., "paid shill for [company]") |
+| Dangerous acts | Add things specific to your topic (e.g., "laser aircraft" for UFOs) |
+| Benign phrases | Add skepticism phrases common in your community |
 
-# Outcomes + lag
-DECISIONS_PATH=report_outcomes.jsonl
-DECISION_LAG_HOURS=12
+**Example customizations by subreddit type:**
 
-# Modlog refresh
-MODLOG_LOOKBACK_DAYS=2
-MODLOG_LIMIT=100000
-MODLOG_REFRESH_INTERVAL_HOURS=4
-MODLOG_REFRESH_JITTER_MIN=10
-MODLOG_PER_REQUEST_SLEEP=0.05
-
-# Runtime
-INTERVAL_SEC=20
-LIMIT=120
-STATE_PATH=reported_ids.jsonl
-LOG_LEVEL=INFO
-LOG_SCAN=1
+For **r/politics**:
+```
+PUBLIC FIGURES: Biden, Trump, AOC, Pelosi, McConnell, etc.
+BENIGN: "both sides", "whataboutism", "fake news"
 ```
 
-## Notes on precision and thresholds
+For **r/nba**:
+```
+PUBLIC FIGURES: LeBron, Curry, team owners, coaches
+BENIGN: "refs are blind", "trade him", "bust"
+```
 
-Your live experience suggests Detoxify ≥ 0.95 is relatively reliable with some false positives. The ensemble helps filter intent and offensiveness. Start with:
+For **r/cryptocurrency**:
+```
+PUBLIC FIGURES: CZ, SBF, Vitalik, crypto influencers
+SHILL ACCUSATIONS: "paid by [coin]", "bag holder"
+BENIGN: "FUD", "shill coin", "rug pull"
+```
 
-- `COMPOSITE_WEIGHTS=0.45,0.35,0.20`
-- `COMPOSITE_THRESHOLD=0.85`
+### Pattern Lists
 
-Raise to `0.88–0.90` if you still see drift; lower to `0.82–0.84` if you are missing obvious insults.
+Edit `moderation_patterns.json` to add/remove:
+- Slurs and hate speech terms
+- Insult words and phrases
+- Threat phrases
+- Benign skip phrases
+- Public figure names
 
-Keep `LOG_SHOW_COMPONENTS=true` while tuning to understand why the composite passed or failed.
+---
+
+## Troubleshooting
+
+### Bot not reporting anything
+- Check `DRY_RUN` is `false`
+- Check `ENABLE_REDDIT_REPORTS` is `true`
+- Check bot has mod permissions in the subreddit
+
+### Rate limited constantly
+- Lower `LLM_REQUESTS_PER_MINUTE`
+- Check Groq dashboard for usage
+- Fallback models should kick in automatically
+
+### Discord notifications not working
+- Check webhook URL is correct
+- Check for "Discord embed post failed" in logs
+- Test webhook with curl
+
+### High false positive rate
+- Review `false_positives.json`
+- Adjust thresholds in `bot.py`
+- Update `moderation_guidelines.txt`
+
+---
+
+## License
+
+MIT License - Don't be a menice.
+
+## Credits
+
+- [Detoxify](https://github.com/unitaryai/detoxify) for local toxicity scoring
+- [Groq](https://groq.com) LLM
+- [PRAW](https://praw.readthedocs.io) Reddit API

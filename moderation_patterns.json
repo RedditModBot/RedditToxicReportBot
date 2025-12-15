@@ -1,0 +1,473 @@
+{
+  "_comment": "Comprehensive moderation patterns for ToxicReportBot. Edit these without touching bot.py",
+  "_version": "1.1",
+  "_last_updated": "2025-12-14",
+
+  "_important_notes": [
+    "Do NOT skip LLM on single words like 'crazy' or 'insane'. Only skip phrase matches AND only when NOT directed at a user.",
+    "Keep ambiguous terms (e.g., 'queer', 'trap', 'it/its') out of 'always escalate' lists. Put them in contextual lists.",
+    "Prefer regex that matches obfuscation (spaces/punct between letters) over enumerating endless variants."
+  ],
+
+  "external_lexicons": {
+    "_comment": "Suggested sources to import/merge periodically (do not paste huge lists here)",
+    "profanity_general": [
+      "LDNOOBW (multi-language profanity list)",
+      "dsojevic/profanity-list (JSON with metadata/severity)",
+      "censor-text/profanity-list (multi-language profanity list)"
+    ],
+    "hate_speech": [
+      "Hatebase (regionalized multilingual hate speech vocabulary)"
+    ],
+    "_comment2": "Use these as data sources to expand coverage without bloating this config."
+  },
+
+  "slurs": {
+    "_comment": "Hard slurs - ONLY high-confidence terms that are ALWAYS slurs. Move ambiguous terms to contextual_sensitive_terms.",
+    "racial": [
+      "nigger", "niggers", "nigga", "niggas", "nigg3r", "n1gger", "n1gga",
+      "nlgger", "nlggor", "nigg4h", "n1gr", "niiger", "niigr",
+      "nig nog", "nignog", "niglet",
+      "kike", "kikes", "k1ke",
+      "spic", "spics", "spick", "sp1c",
+      "wetback", "wetbacks",
+      "beaner", "beaners",
+      "chink", "chinks", "ch1nk",
+      "gook", "gooks", "g00k",
+      "zipperhead", "zipperheads",
+      "coon", "coons", "c00n",
+      "jigaboo", "jiggaboo", "jiggerboo",
+      "porch monkey", "porchmonkey",
+      "jungle bunny", "junglebunny",
+      "raghead", "ragheads", "towelhead", "towelheads",
+      "camel jockey", "cameljockey",
+      "sand nigger", "sandnigger",
+      "kaffir", "kaffer", "kafir",
+      "golliwog", "golliwogs",
+      "mooncricket", "mooncrickets",
+      "spearchucker", "spearchuckers",
+      "tarbaby", "tar baby",
+      "timbernigger", "timber nigger",
+      "dune coon", "dune-coon",
+      "prairie nigger", "prairie niggers",
+      "snow nigger", "snownigger",
+      "spaghettinigger"
+    ],
+
+    "homophobic_hard": [
+      "faggot", "faggots", "fag", "fags", "f4ggot", "f4g", "fagot", "fagots",
+      "faig", "faigs", "fagbag", "fagfucker", "fagtard",
+      "fag1t", "fagg1t", "fagit", "fagz",
+      "dyke", "dykes", "d1ke", "bulldyke", "bulldike",
+      "pillow biter", "pillowbiter",
+      "butt pirate", "buttpirate",
+      "pole smoker", "polesmoker", "poof",
+      "cocksmoker", "cocksucker",
+      "carpet muncher", "carpetmuncher",
+      "turd burglar",
+      "ass bandit", "assbandit", "arse bandit",
+      "batty boi", "batty boy", "battyboi", "battyboy",
+      "bean flicker", "beanflicker",
+      "bone smuggler", "bonesmuggler",
+      "bum boy", "bumboy", "bum bandit", "bum chum", "bumchum",
+      "bum driller", "bumdriller", "bum robber", "bumrobber",
+      "chi chi man", "chi-chi man",
+      "cockpipe cosmonaut",
+      "crafty butcher",
+      "donut puncher",
+      "fudge packer", "fudgepacker", "fudge-packer",
+      "ring raider", "ringraider",
+      "finocchio", "finoccio", "finochio",
+      "knob jockey", "knobjockey"
+    ],
+
+    "transphobic_hard": [
+      "tranny", "trannies", "tr4nny",
+      "shemale", "she-male", "shemales",
+      "heshe",
+      "troon", "troons", "tr00n", "tr00ns"
+    ],
+
+    "ableist_hard": [
+      "retard", "retards", "retarded", "r3tard", "r3t4rd", "tard", "tards",
+      "rtard", "rtards", "r-tard", "r-tards", "reetard", "ritard",
+      "libtard", "trumptard", "contard", "fucktard", "fucktards", "fagtard",
+      "mongoloid", "mong", "spazz",
+      "cripple", "cripples",
+      "window licker", "windowlicker"
+    ],
+
+    "religious_hard": [
+      "christfag",
+      "godfag",
+      "mudslime", "mudslimes"
+    ],
+
+    "gendered_slurs": [
+      "cunt", "cunts", "cuntface", "cuntrag",
+      "twat", "twats", "twatface", "twatwaffle",
+      "bitch", "bitches", "bitchass", "bitchtit",
+      "whore", "whores", "whorehouse", "whorebag", "whoreface",
+      "slut", "sluts", "slutbag", "slutty",
+      "camwhore", "camslut",
+      "hooker", "hookers",
+      "skank", "skanks", "skanky", "skankbitch",
+      "hoe", "hoes", "ho",
+      "thot", "thots"
+    ]
+  },
+
+  "contextual_sensitive_terms": {
+    "_comment": "Ambiguous terms: escalate ONLY when (a) directed at user, (b) Detoxify identity_attack is high, or (c) dehumanizing framing",
+    
+    "racial_ambiguous": [
+      "negro", "negroid", "negress",
+      "oreo",
+      "cracker", "cracka", "honky", "honkey", "honkie",
+      "gringo", "dago", "wop",
+      "gypsy", "gyp", "gypo",
+      "jap", "nip", "nips",
+      "paki", "pikey",
+      "mick", "kraut", "limey",
+      "polack", "polak",
+      "redskin", "injun",
+      "squaw",
+      "yid", "heeb", "hymie",
+      "wog", "abo", "boong",
+      "guido", "guinea",
+      "slope", "sloper",
+      "darkie", "darky",
+      "wigger", "wigga",
+      "uncle tom",
+      "spade", "sambo",
+      "chinky", "gooky", "slanty"
+    ],
+    
+    "sexual_orientation": ["queer", "homo"],
+    "trans_context": ["trap", "ladyboy", "he/she", "he-she"],
+    "disability_context": ["autist", "autistic", "spaz", "spastic", "special needs", "short bus"],
+    "religion_mocking": ["sky fairy", "sky daddy"],
+    
+    "extremism_references": [
+      "neo nazi", "neonazi", "white power", "whitepower", "swastika",
+      "nazi", "nazis", "skinhead", "skinheads", "kkk", "klan"
+    ],
+    
+    "_comment2": "These terms CAN be slurs but often appear in neutral context. Bot should check directedness + Detoxify scores."
+  },
+
+  "profanity_insults": {
+    "_comment": "General profanity/vulgar insults - Detoxify usually catches these, but listed for completeness",
+    "_note": "These are NOT auto-escalated as slurs, but help with pattern matching",
+    "vulgar_insults": [
+      "asshole", "assmunch", "arsehole",
+      "bastard", "bastardo",
+      "bullshit", "apeshit", "horseshit",
+      "cocksucker", "cock sucker",
+      "clusterfuck", "fucktard", "fucktards",
+      "douchebag", "dirtbag", "scumbag",
+      "dickhead", "dipshit", "dumbass", "dumbfuck",
+      "jackass", "jackoff",
+      "motherfucker", "motherfucking",
+      "piece of shit", "shithead", "shitbag", "shitblimp",
+      "prick", "tosser", "wanker"
+    ],
+    "crude_anatomical": [
+      "ass", "anus", "butthole", "bunghole",
+      "cock", "cocks", "dick", "penis", "schlong",
+      "balls", "ballsack", "nutsack",
+      "tits", "titties", "boobs", "breasts",
+      "pussy", "clit", "clitoris", "vagina", "vulva",
+      "boner", "erection"
+    ]
+  },
+
+  "self_harm": {
+    "_comment": "Self-harm and suicide encouragement - ALWAYS escalate",
+    "phrases": [
+      "kill yourself", "kill urself", "kill your self",
+      "kys", "k y s", "k.y.s", "k.y.s.",
+      "kms",
+      "end yourself", "end your life", "end ur life", "end it",
+      "off yourself", "unalive yourself",
+      "neck yourself", "hang yourself", "rope yourself",
+      "drink bleach", "eat a bullet", "eat bullets",
+      "slit your wrists", "cut your wrists",
+      "go die", "go die in a fire",
+      "hope you die", "hope u die",
+      "should die", "deserve to die",
+      "better off dead", "world would be better without you",
+      "do us all a favor and die", "do the world a favor",
+      "just end it",
+      "jump off a bridge", "step in front of a train",
+      "take a long walk off a short pier"
+    ]
+  },
+
+  "threats": {
+    "_comment": "Direct threats and intimidation - ALWAYS escalate",
+    "violence": [
+      "i'll kill you", "i will kill you", "im gonna kill you", "i'm gonna kill you",
+      "going to kill you",
+      "i'll hurt you", "i will hurt you",
+      "beat the shit out of you", "kick your ass",
+      "punch you", "stab you", "shoot you", "murder you",
+      "put a bullet in you", "curb stomp you", "bash your head in",
+      "break your legs", "break your face"
+    ],
+    "intimidation": [
+      "i'll find you", "i will find you", "i'll get you",
+      "watch your back", "watch yourself",
+      "you're gonna regret", "you will regret", "you'll be sorry",
+      "i know where you live", "i know where you work", "i know who you are",
+      "you're a dead man", "you're dead", "your days are numbered"
+    ],
+    "doxxing": [
+      "what's your address", "where do you live", "what's your real name",
+      "your real name is",
+      "i found your facebook", "i found your instagram",
+      "i found where you work",
+      "your phone number is", "your address is",
+      "i have your info", "i have your dox", "i have your doxx"
+    ]
+  },
+
+  "sexual_violence": {
+    "_comment": "Sexual violence threats/wishes - ALWAYS escalate",
+    "phrases": [
+      "i'll rape you", "i will rape you",
+      "you should get raped", "hope you get raped",
+      "rape yourself"
+    ]
+  },
+
+  "violence_illegal_advocacy": {
+    "_comment": "Encouraging violence/illegal/dangerous acts - escalate when exhortative/serious",
+    "phrases": [
+      "shoot it down", "shoot that down", "take a shot at it",
+      "someone should shoot", "we should shoot",
+      "bring a rifle", "use a rifle", "take a gun",
+      "shine a laser", "shining a laser", "laser it",
+      "fire at it", "open fire",
+      "hunt them down"
+    ],
+    "_comment2": "Your bot logic should require seriousness words like 'should/let's/someone' to reduce jokes."
+  },
+
+  "brigading_harassment": {
+    "_comment": "Calls for dogpiling/harassing/reporting a person - escalate when targeted",
+    "phrases": [
+      "everyone go harass", "go harass this guy", "go after this guy",
+      "ruin their life", "make them regret", "teach them a lesson",
+      "mass report", "everyone report", "brigade", "raid this",
+      "dox them", "doxx them"
+    ]
+  },
+
+  "shill_accusations": {
+    "_comment": "Accusations of being paid agents/bots - escalate when directed at users",
+    "terms": [
+      "you're a bot", "youre a bot", "ur a bot",
+      "you're a shill", "youre a shill",
+      "you're a fed", "youre a fed",
+      "you're a glowie", "youre a glowie",
+      "you're a spook", "youre a spook",
+      "you're an agent", "you're a plant",
+      "you're paid", "paid shill", "paid troll", "paid poster",
+      "paid disinfo", "paid disinformation",
+      "government shill", "cia shill", "cia agent", "cia bot",
+      "nsa shill", "nsa agent",
+      "fbi shill", "fbi agent",
+      "dia shill", "dia agent",
+      "air force shill", "pentagon shill",
+      "eglin air force", "eglin afb", "langley",
+      "disinformation agent", "disinfo agent",
+      "nice try fed", "nice try bot", "nice try shill",
+      "obvious bot", "obvious shill",
+      "clearly a bot", "clearly a shill",
+      "bot account", "shill account",
+      "how much do they pay you", "how much are you paid",
+      "who's paying you", "who pays you",
+      "astroturf", "astroturfing",
+      "glowing", "you glow"
+    ]
+  },
+
+  "insults_direct": {
+    "_comment": "Direct insults targeting users - escalate when directedness is detected",
+    "intelligence": [
+      "idiot", "idiots", "stupid", "dumb", "dumbass", "dumbfuck", "dumass", "dumbshit",
+      "moron", "moronic", "imbecile",
+      "brainless", "braindead", "brain dead",
+      "smooth brain", "smoothbrain",
+      "room temperature iq", "single digit iq", "low iq", "negative iq",
+      "no brain cells", "two brain cells",
+      "dense", "thick",
+      "simpleton", "dimwit", "nitwit", "halfwit", "twit", "dunce",
+      "numbskull", "bonehead", "blockhead", "meathead", "pinhead",
+      "pea brain", "airhead", "dolt", "ignoramus",
+      "nimrod", "ninny", "doofus", "dipstick",
+      "dummy", "dummies", "ignorant"
+    ],
+    "character": [
+      "loser", "losers", "pathetic", "worthless", "useless",
+      "waste of space", "waste of oxygen", "waste of air",
+      "piece of shit", "pieces of shit", "piece of garbage", "piece of trash",
+      "full of shit", "full of crap",
+      "scum", "scumbag", "dirtbag", "sleazebag", "lowlife", "degenerate",
+      "garbage human", "trash person", "human garbage", "human trash",
+      "subhuman", "disgrace", "embarrassment",
+      "joke", "clown", "clowns", "fool", "fools", "tool",
+      "douche", "douchebag", "douchewaffle", "douchey",
+      "asshole", "assholes", "asshat", "assclown", "asswipe", "assface",
+      "jackass", "dipshit", "dipshits", "dickhead", "dickheads", "dickwad", "dickweed", "dickless",
+      "prick", "pricks", "jerk", "jerks", "jerkoff", "jerkass",
+      "creep", "creeps", "weirdo", "weirdos", "freak", "freaks", "sicko", "sickos", "pervert", "perverts", "perv",
+      "shithead", "shitheads", "shitstain", "shitbag", "shitface",
+      "fuckface", "fuckhead", "fuckwit", "fuckwad", "fucktard", "fucktards",
+      "cockhead", "cockface",
+      "turd", "turdface",
+      "scuzzball", "sleazeball", "slimeball",
+      "pos", "sod", "git", "prat", "plonker", "muppet", "numpty",
+      "incel", "incels", "neckbeard", "neckbeards", "basement dweller",
+      "simp", "simps", "cuck", "cucks", "soyboy", "soyboys",
+      "bootlicker", "bootlickers", "grifter", "grifters",
+      "phony", "phonies", "fraud", "frauds", "fake", "fakes",
+      "coward", "cowards"
+    ],
+    "mental_health": [
+      "take your meds", "off your meds", "forgot your meds",
+      "you're crazy", "youre crazy",
+      "you're insane", "youre insane",
+      "you're mental", "youre mental",
+      "you're unhinged", "youre unhinged",
+      "you're deranged", "youre deranged",
+      "you're delusional", "youre delusional",
+      "you're psycho", "youre psycho",
+      "you're a psycho", "youre a psycho",
+      "you're schizo", "youre schizo",
+      "seek help", "get help",
+      "need therapy", "need a psychiatrist",
+      "belong in a mental hospital", "belong in an asylum",
+      "padded cell", "straight jacket",
+      "tinfoil hat", "check yourself in",
+      "lunatic", "nutjob", "nutcase", "psychopath", "sociopath",
+      "bat shit crazy", "batshit crazy", "batshit",
+      "shit for brains", "brain cooked", "brain is cooked",
+      "manic episode", "psychotic episode",
+      "brain worm", "brainworm", "brain worms"
+    ]
+  },
+
+  "dismissive_hostile": {
+    "_comment": "Hostile dismissiveness patterns - escalate when clearly attacking",
+    "phrases": [
+      "shut up", "shut the fuck up", "stfu",
+      "fuck off", "piss off", "go away", "get lost", "get fucked",
+      "go fuck yourself", "gfy",
+      "eat shit", "eat a dick",
+      "suck a dick", "suck my dick", "blow me", "kiss my ass",
+      "shove it", "screw you",
+      "nobody asked", "who asked", "didn't ask",
+      "nobody cares", "no one cares",
+      "cope", "seethe", "mald",
+      "cry more", "cry about it",
+      "stay mad", "die mad",
+      "touch grass"
+    ]
+  },
+
+  "benign_skip": {
+    "_comment": "Almost always benign phrases. Apply ONLY when NOT directed at a user.",
+    "_do_not_include_single_words": true,
+
+    "excitement_phrases": [
+      "holy shit", "holy fuck", "holy crap", "holy hell",
+      "what the fuck", "what the hell", "what the heck",
+      "no way", "no fucking way", "no freaking way",
+      "mind blowing", "mindblowing"
+    ],
+
+    "ufo_context_phrases": [
+      "crazy footage", "insane footage", "wild footage",
+      "crazy video", "insane video", "wild video",
+      "that's insane", "that's crazy", "that's wild",
+      "this is insane", "this is crazy", "this is wild"
+    ]
+  },
+
+  "obfuscation_map": {
+    "_comment": "Character substitutions used to evade filters",
+    "leet_speak": {
+      "0": "o",
+      "1": "i",
+      "2": "z",
+      "3": "e",
+      "4": "a",
+      "5": "s",
+      "6": "g",
+      "7": "t",
+      "8": "b",
+      "9": "g",
+      "@": "a",
+      "$": "s",
+      "!": "i",
+      "+": "t",
+      "€": "e",
+      "¥": "y",
+      "©": "c",
+      "®": "r",
+      "¡": "i",
+      "£": "e"
+    },
+    "common_evasions": {
+      "ph": "f"
+    }
+  },
+
+  "regex_patterns": {
+    "_comment": "Regex patterns for complex matching - compile with re.IGNORECASE",
+
+    "must_escalate": [
+      "\\bk\\W*y\\W*s\\b",
+      "\\bkill\\W*(your|ur)\\W*self\\b",
+      "\\bend\\W*(your|ur)\\W*(life|it)\\b",
+      "\\b(off|unalive)\\W*(your|ur)\\W*self\\b",
+      "\\b(neck|hang|rope)\\W*(your|ur)\\W*self\\b",
+      "\\bdrink\\W*bleach\\b",
+      "\\bgo\\W*die\\b",
+      "\\bhope\\W*(you|u)\\W*die\\b",
+
+      "\\bi\\W*'?ll\\W*(find|get|hurt|kill)\\W*(you|u)\\b",
+      "\\bwatch\\W*(your|ur)\\W*back\\b",
+      "\\bi\\W*know\\W*where\\W*you\\W*(live|work)\\b",
+
+      "\\byou\\W*'?re\\W+(a\\W+)?(bot|shill|fed|glowie|spook|agent|plant)\\b",
+      "\\b(nice|obvious|clearly?)\\W+(try\\W+)?(bot|shill|fed)\\b",
+      "\\bhow\\W*much\\W+(do\\W+)?(they|you)\\W+pay\\b",
+      "\\beglin\\W*(air\\W*force|afb)?\\b",
+      "\\bpaid\\W+(shill|troll|poster|disinfo)\\b",
+      "\\b(cia|nsa|fbi|dia)\\W+(agent|shill|bot)\\b",
+
+      "\\b\\d{3}[-.\\s]?\\d{3}[-.\\s]?\\d{4}\\b",
+      "\\b[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}\\b",
+      "\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b",
+      "\\b\\(?\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4}\\b",
+
+      "\\b(address\\W+is|phone\\W+number|real\\W+name\\W+is|doxx?)\\b",
+      "\\b(mass\\W*report|brigade|raid\\W+this)\\b",
+
+      "\\b(rape)\\W*(you|u|them|her|him)\\b",
+      "\\bhope\\W*you\\W*get\\W*raped\\b"
+    ],
+
+    "directedness_check": [
+      "\\bu/\\w+",
+      "\\b(you|your|you're|youre|ur)\\b",
+      "\\bop\\b",
+      "\\bmods?\\b"
+    ],
+
+    "_comment2": "If you want obfuscated slur matching without listing variants, generate regex from the term list using a joiner like \\W* between letters."
+  }
+}

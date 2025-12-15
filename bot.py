@@ -1,83 +1,218 @@
 #!/usr/bin/env python3
-import os, sys, json, time, math, threading, random, logging
+# -*- coding: utf-8 -*-
+"""
+RedditToxicReportBot v2 - LLM-Powered Comment Moderation
+
+Uses Detoxify as a pre-filter to decide what needs analysis,
+then Groq API (free tier) for intelligent context-aware toxicity detection.
+"""
+
+import os
+import sys
+import json
+import time
+import logging
+import traceback
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Dict, Any, Iterable, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
+from enum import Enum
 
-import requests
+# -------- env loading --------
 from dotenv import load_dotenv
+load_dotenv(dotenv_path=os.getenv("ENV_FILE", ".env"))
+
+# -------- reddit / http --------
 import praw
+import prawcore
 
-# === Optional models (loaded lazily when needed) ===
-_DETOX = None
-_OFF_PIPE = None
-_HATE_PIPE = None
+# -------- LLM --------
+from groq import Groq
 
-try:
-    from detoxify import Detoxify
-except Exception:
-    Detoxify = None
-
-try:
-    from transformers import pipeline
-except Exception:
-    pipeline = None
+# -------- discord optional --------
+import urllib.request
 
 
-# ---------- Utilities ----------
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+# -------------------------------
+# Enums
+# -------------------------------
 
-def ts() -> float:
-    return utcnow().timestamp()
+class Verdict(Enum):
+    """Classification results from LLM analysis"""
+    REPORT = "REPORT"           # Clearly toxic, should be reported
+    BENIGN = "BENIGN"           # Not toxic, no action needed
 
-def to_fullname(thing_id: str, kind: Optional[str] = None) -> str:
-    """Return t1_xxx or t3_xxx; accept raw 'xxx', 't1_xxx', PRAW objects, etc."""
-    if hasattr(thing_id, "fullname"):
-        return thing_id.fullname
-    if isinstance(thing_id, str):
-        s = thing_id.strip()
-        if s.startswith("t1_") or s.startswith("t3_"):
-            return s
-        # guess kind when missing
-        if kind in ("t1", "comment", "c"):
-            return f"t1_{s}"
-        if kind in ("t3", "link", "post", "submission", "s"):
-            return f"t3_{s}"
-        # default to comment
-        return f"t1_{s}"
-    return str(thing_id)
 
-def read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    if not path.exists():
+# -------------------------------
+# Reported Comments Tracking
+# -------------------------------
+
+TRACKING_FILE = "reported_comments.json"
+
+def load_tracked_comments() -> List[Dict]:
+    """Load tracked comments from JSON file"""
+    try:
+        with open(TRACKING_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
         return []
-    out = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
+    except json.JSONDecodeError:
+        logging.warning(f"Could not parse {TRACKING_FILE}, starting fresh")
+        return []
+
+def save_tracked_comments(comments: List[Dict]) -> None:
+    """Save tracked comments to JSON file"""
+    with open(TRACKING_FILE, "w", encoding="utf-8") as f:
+        json.dump(comments, f, indent=2)
+
+def track_reported_comment(comment_id: str, permalink: str, text: str, 
+                           groq_reason: str, detoxify_score: float) -> None:
+    """Add a newly reported comment to tracking"""
+    comments = load_tracked_comments()
+    
+    # Don't add duplicates
+    if any(c.get("comment_id") == comment_id for c in comments):
+        return
+    
+    comments.append({
+        "comment_id": comment_id,
+        "permalink": permalink,
+        "text": text[:500],  # Truncate long comments
+        "groq_reason": groq_reason,
+        "detoxify_score": detoxify_score,
+        "reported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "outcome": "pending",
+        "checked_at": ""
+    })
+    
+    save_tracked_comments(comments)
+    logging.debug(f"Tracking reported comment: {comment_id}")
+
+def check_reported_outcomes(reddit: praw.Reddit, min_age_hours: int = 24) -> Dict[str, int]:
+    """
+    Check outcomes of pending reported comments.
+    Returns stats dict with counts.
+    """
+    comments = load_tracked_comments()
+    now = time.time()
+    stats = {"checked": 0, "removed": 0, "approved": 0, "still_pending": 0, "errors": 0}
+    
+    for entry in comments:
+        if entry.get("outcome") != "pending":
+            continue
+        
+        # Check if comment is old enough
+        reported_at = entry.get("reported_at", "")
+        if reported_at:
             try:
-                out.append(json.loads(line))
-            except Exception:
-                continue
-    return out
+                reported_time = time.mktime(time.strptime(reported_at, "%Y-%m-%dT%H:%M:%SZ"))
+                age_hours = (now - reported_time) / 3600
+                if age_hours < min_age_hours:
+                    stats["still_pending"] += 1
+                    continue
+            except ValueError:
+                pass
+        
+        # Check comment status via Reddit API
+        comment_id = entry.get("comment_id", "")
+        if not comment_id:
+            continue
+            
+        try:
+            # Remove t1_ prefix if present for fetching
+            clean_id = comment_id.replace("t1_", "")
+            comment = reddit.comment(clean_id)
+            
+            # Force fetch the comment data
+            _ = comment.body
+            
+            # Check if removed
+            # removed_by_category is set if removed by mod/automod/admin
+            # If comment.body is "[removed]" it was removed
+            if comment.body == "[removed]" or getattr(comment, 'removed', False):
+                entry["outcome"] = "removed"
+                stats["removed"] += 1
+            elif getattr(comment, 'removed_by_category', None):
+                entry["outcome"] = "removed"
+                stats["removed"] += 1
+            else:
+                # Comment still exists, was approved or not actioned
+                entry["outcome"] = "approved"
+                stats["approved"] += 1
+            
+            entry["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            stats["checked"] += 1
+            
+        except prawcore.exceptions.NotFound:
+            # Comment was deleted (by user or mod)
+            entry["outcome"] = "removed"
+            entry["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            stats["removed"] += 1
+            stats["checked"] += 1
+        except Exception as e:
+            logging.warning(f"Error checking comment {comment_id}: {e}")
+            stats["errors"] += 1
+    
+    save_tracked_comments(comments)
+    return stats
 
-def append_jsonl(path: Path, record: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+def cleanup_old_tracked(max_age_days: int = 30) -> int:
+    """Remove entries older than max_age_days that have been resolved"""
+    comments = load_tracked_comments()
+    now = time.time()
+    original_count = len(comments)
+    
+    filtered = []
+    for entry in comments:
+        # Keep pending entries regardless of age
+        if entry.get("outcome") == "pending":
+            filtered.append(entry)
+            continue
+        
+        # Check age of resolved entries
+        checked_at = entry.get("checked_at", "")
+        if checked_at:
+            try:
+                checked_time = time.mktime(time.strptime(checked_at, "%Y-%m-%dT%H:%M:%SZ"))
+                age_days = (now - checked_time) / 86400
+                if age_days < max_age_days:
+                    filtered.append(entry)
+            except ValueError:
+                filtered.append(entry)
+        else:
+            filtered.append(entry)
+    
+    save_tracked_comments(filtered)
+    removed = original_count - len(filtered)
+    if removed > 0:
+        logging.info(f"Cleaned up {removed} old tracking entries")
+    return removed
 
-def save_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+def get_accuracy_stats() -> Dict[str, any]:
+    """Calculate accuracy statistics from tracked comments"""
+    comments = load_tracked_comments()
+    
+    total = len(comments)
+    pending = sum(1 for c in comments if c.get("outcome") == "pending")
+    removed = sum(1 for c in comments if c.get("outcome") == "removed")
+    approved = sum(1 for c in comments if c.get("outcome") == "approved")
+    
+    resolved = removed + approved
+    accuracy = (removed / resolved * 100) if resolved > 0 else 0
+    
+    return {
+        "total_tracked": total,
+        "pending": pending,
+        "removed": removed,
+        "approved": approved,
+        "resolved": resolved,
+        "accuracy_pct": accuracy
+    }
 
-def jitter_seconds(min_s: float, max_s: float) -> float:
-    return random.uniform(min_s, max_s)
 
+# -------------------------------
+# Config
+# -------------------------------
 
-# ---------- Config ----------
 @dataclass
 class Config:
     # Reddit
@@ -86,642 +221,1893 @@ class Config:
     username: str
     password: str
     user_agent: str
-
-    # subs
     subreddits: List[str]
 
-    # scoring
-    detoxify_variant: str
-    composite_enable: bool
-    composite_weights: Tuple[float, float, float]
-    composite_threshold: float
-    text_normalize: bool
-    log_show_components: bool
-    log_show_comment: bool
+    # LLM
+    groq_api_key: str
+    llm_model: str
+    llm_fallback_model: str     # Fallback when daily limit reached
+    llm_daily_limit: int        # Switch to fallback after this many calls
+    llm_requests_per_minute: int  # Max requests per minute to Groq
+    
+    # Detoxify pre-filter
+    detoxify_threshold: float  # Score above this gets sent to LLM
+    detoxify_model: str        # "original" or "unbiased"
+    
+    # Custom moderation guidelines (loaded from file or env)
+    moderation_guidelines: str
 
-    # optional models
-    offensive_model: str
-    hate_model: str
-
-    # confidence bands
-    conf_medium: float
-    conf_high: float
-    conf_very_high: float
-
-    # lexicon
-    lexicon_path: Optional[Path]
-
-    # reporting
-    report_as: str
-    report_style: str
-    report_reason_template: str
+    # Reporting behavior
+    report_as: str              # "moderator" | "user"
     report_rule_bucket: str
     enable_reddit_reports: bool
     dry_run: bool
 
-    # discord per-item
+    # Discord
     enable_discord: bool
-    discord_webhook: Optional[str]
+    discord_webhook: str
 
-    # weekly summary
-    enable_weekly_summary: bool
-    summary_webhook: Optional[str]
-    summary_interval_days: int
-    summary_state_path: Path
-    summary_include_top_reasons: bool  # kept for compatibility, not used
-
-    # outcomes + lag
-    decisions_path: Path
-    decision_lag_hours: int
-
-    # modlog refresh
-    modlog_lookback_days: int
-    modlog_limit: int
-    modlog_refresh_interval_hours: int
-    modlog_refresh_jitter_min: int
-    modlog_per_request_sleep: float
-
-    # runtime
-    interval_sec: float
-    limit: int
-    state_path: Path
+    # Runtime
     log_level: str
-    log_scan: int
+
 
 def load_config() -> Config:
-    load_dotenv(Path.cwd() / ".env")
+    """Load and validate configuration from environment"""
+    
+    # Required Reddit vars
+    for key in [
+        "REDDIT_CLIENT_ID",
+        "REDDIT_CLIENT_SECRET",
+        "REDDIT_USERNAME",
+        "REDDIT_PASSWORD",
+        "REDDIT_USER_AGENT",
+    ]:
+        if not os.getenv(key):
+            raise KeyError(f"Missing required env var: {key}")
 
-    def getenvb(k, d=False):
-        v = os.getenv(k, str(d)).strip().lower()
-        return v in ("1", "true", "yes", "y", "on")
+    # Required Groq key
+    if not os.getenv("GROQ_API_KEY"):
+        raise KeyError("Missing required env var: GROQ_API_KEY (get free key at console.groq.com)")
 
-    def getfloat(k, d):
-        try:
-            return float(os.getenv(k, str(d)))
-        except Exception:
-            return d
+    subs = os.getenv("SUBREDDITS", "").strip()
+    if not subs:
+        raise KeyError("SUBREDDITS is required, e.g. 'UFOs' or 'a,b,c'")
 
-    def getint(k, d):
-        try:
-            return int(os.getenv(k, str(d)))
-        except Exception:
-            return d
+    # Load moderation guidelines from file or env
+    guidelines_path = os.getenv("MODERATION_GUIDELINES_FILE", "moderation_guidelines.txt")
+    guidelines = os.getenv("MODERATION_GUIDELINES", "").strip()
+    
+    if not guidelines and os.path.exists(guidelines_path):
+        with open(guidelines_path, "r", encoding="utf-8") as f:
+            guidelines = f.read().strip()
+    
+    if not guidelines:
+        raise KeyError(f"No moderation guidelines found. Create '{guidelines_path}' or set MODERATION_GUIDELINES env var.")
 
-    def getcsv(k, default=""):
-        raw = os.getenv(k, default) or ""
-        parts = [p.strip() for p in raw.split(",") if p.strip()]
-        return parts
-
-    # composite weights
-    w_raw = os.getenv("COMPOSITE_WEIGHTS", "0.45,0.35,0.20")
-    try:
-        w = tuple(float(x.strip()) for x in w_raw.split(","))
-        if len(w) != 3:
-            raise ValueError
-    except Exception:
-        w = (0.45, 0.35, 0.20)
-
-    lex_path = os.getenv("LEXICON_PATH", "").strip()
-    lex_path = Path(lex_path) if lex_path else None
-
-    return Config(
-        client_id=os.getenv("REDDIT_CLIENT_ID", ""),
-        client_secret=os.getenv("REDDIT_CLIENT_SECRET", ""),
-        username=os.getenv("REDDIT_USERNAME", ""),
-        password=os.getenv("REDDIT_PASSWORD", ""),
-        user_agent=os.getenv("REDDIT_USER_AGENT", "tox-report-bot/1.0"),
-        subreddits=[s.strip() for s in (os.getenv("SUBREDDITS", "ufos")).split(",") if s.strip()],
-        detoxify_variant=os.getenv("DETOXIFY_VARIANT", "unbiased"),
-        composite_enable=getenvb("COMPOSITE_ENABLE", True),
-        composite_weights=w,
-        composite_threshold=getfloat("COMPOSITE_THRESHOLD", 0.85),
-        text_normalize=getenvb("TEXT_NORMALIZE", False),
-        log_show_components=getenvb("LOG_SHOW_COMPONENTS", True),
-        log_show_comment=getenvb("LOG_SHOW_COMMENT", False),
-        offensive_model=os.getenv("OFFENSIVE_MODEL", "unitary/toxic-bert"),
-        hate_model=os.getenv("HATE_MODEL", "Hate-speech-CNERG/dehatebert-mono-english"),
-        conf_medium=getfloat("CONF_MEDIUM", 0.85),
-        conf_high=getfloat("CONF_HIGH", 0.95),
-        conf_very_high=getfloat("CONF_VERY_HIGH", 0.98),
-        lexicon_path=lex_path,
-        report_as=os.getenv("REPORT_AS", "moderator"),
-        report_style=os.getenv("REPORT_STYLE", "simple"),
-        report_reason_template=os.getenv("REPORT_REASON_TEMPLATE", "{verdict} (confidence: {confidence})."),
-        report_rule_bucket=os.getenv("REPORT_RULE_BUCKET", ""),
-        enable_reddit_reports=getenvb("ENABLE_REDDIT_REPORTS", True),
-        dry_run=getenvb("DRY_RUN", False),
-        enable_discord=getenvb("ENABLE_DISCORD", False),
-        discord_webhook=(os.getenv("DISCORD_WEBHOOK") or "").strip() or None,
-        enable_weekly_summary=getenvb("ENABLE_WEEKLY_SUMMARY", True),
-        summary_webhook=(os.getenv("SUMMARY_DISCORD_WEBHOOK") or "").strip() or None,
-        summary_interval_days=getint("SUMMARY_INTERVAL_DAYS", 7),
-        summary_state_path=Path(os.getenv("SUMMARY_STATE_PATH", "summary_state.json")),
-        summary_include_top_reasons=os.getenv("SUMMARY_INCLUDE_TOP_REASONS", "false").lower() == "true",
-        decisions_path=Path(os.getenv("DECISIONS_PATH", "report_outcomes.jsonl")),
-        decision_lag_hours=getint("DECISION_LAG_HOURS", 12),
-        modlog_lookback_days=getint("MODLOG_LOOKBACK_DAYS", 2),
-        modlog_limit=getint("MODLOG_LIMIT", 100000),
-        modlog_refresh_interval_hours=getint("MODLOG_REFRESH_INTERVAL_HOURS", 24),
-        modlog_refresh_jitter_min=getint("MODLOG_REFRESH_JITTER_MIN", 10),
-        modlog_per_request_sleep=float(os.getenv("MODLOG_PER_REQUEST_SLEEP", "0.05")),
-        interval_sec=float(os.getenv("INTERVAL_SEC", "20")),
-        limit=getint("LIMIT", 120),
-        state_path=Path(os.getenv("STATE_PATH", "reported_ids.jsonl")),
-        log_level=os.getenv("LOG_LEVEL", "INFO"),
-        log_scan=getint("LOG_SCAN", 1)
+    cfg = Config(
+        client_id=os.environ["REDDIT_CLIENT_ID"],
+        client_secret=os.environ["REDDIT_CLIENT_SECRET"],
+        username=os.environ["REDDIT_USERNAME"],
+        password=os.environ["REDDIT_PASSWORD"],
+        user_agent=os.environ["REDDIT_USER_AGENT"],
+        subreddits=[s.strip() for s in subs.split(",") if s.strip()],
+        
+        groq_api_key=os.environ["GROQ_API_KEY"],
+        llm_model=os.getenv("LLM_MODEL", "llama-3.1-8b-instant"),
+        llm_fallback_model=os.getenv("LLM_FALLBACK_MODEL", ""),
+        llm_daily_limit=int(os.getenv("LLM_DAILY_LIMIT", "240")),
+        llm_requests_per_minute=int(os.getenv("LLM_REQUESTS_PER_MINUTE", "2")),
+        
+        detoxify_threshold=float(os.getenv("DETOXIFY_THRESHOLD", "0.3")),
+        detoxify_model=os.getenv("DETOXIFY_MODEL", "original"),
+        
+        moderation_guidelines=guidelines,
+        
+        report_as=os.getenv("REPORT_AS", "moderator").lower(),
+        report_rule_bucket=os.getenv("REPORT_RULE_BUCKET", "").strip(),
+        enable_reddit_reports=os.getenv("ENABLE_REDDIT_REPORTS", "true").lower() == "true",
+        dry_run=os.getenv("DRY_RUN", "false").lower() == "true",
+        
+        enable_discord=os.getenv("ENABLE_DISCORD", "false").lower() == "true",
+        discord_webhook=os.getenv("DISCORD_WEBHOOK", "").strip(),
+        
+        log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
     )
+    return cfg
 
 
-# ---------- Models / scoring ----------
-def load_detoxify(variant: str):
-    global _DETOX
-    if _DETOX is None:
-        if Detoxify is None:
-            raise RuntimeError("Detoxify not available. Install package to enable.")
-        _DETOX = Detoxify(variant)
-    return _DETOX
+# -------------------------------
+# Logging
+# -------------------------------
 
-def load_offensive(model_name: str):
-    global _OFF_PIPE
-    if _OFF_PIPE is None:
-        if pipeline is None:
-            raise RuntimeError("transformers not available.")
-        _OFF_PIPE = pipeline("text-classification", model=model_name)
-    return _OFF_PIPE
-
-def load_hate(model_name: str):
-    global _HATE_PIPE
-    if _HATE_PIPE is None:
-        if pipeline is None:
-            raise RuntimeError("transformers not available.")
-        _HATE_PIPE = pipeline("text-classification", model=model_name)
-    return _HATE_PIPE
-
-def normalize_text(s: str, enable: bool) -> str:
-    if not enable:
-        return s
-    # keep normalization mild to avoid changing meaning
-    return " ".join(s.split())
-
-def score_text(text: str, cfg: Config) -> Dict[str, float]:
-    t = normalize_text(text or "", cfg.text_normalize)
-
-    # Detoxify
-    dmodel = load_detoxify(cfg.detoxify_variant)
-    d = dmodel.predict(t)
-    tox = float(d.get("toxicity", 0.0))
-
-    # Offensiveness
-    opipe = load_offensive(cfg.offensive_model)
-    o = opipe(t)[0]
-    # map to "offensive probability"
-    off_score = o["score"] if o["label"].lower() in ("toxic", "offensive") else 1.0 - o["score"]
-
-    # Hate
-    hpipe = load_hate(cfg.hate_model)
-    h = hpipe(t)[0]
-    hate_score = h["score"] if h["label"].lower() not in ("normal", "non-hate", "non_hate") else 0.0
-
-    # composite
-    if cfg.composite_enable:
-        w1, w2, w3 = cfg.composite_weights
-        composite = w1 * tox + w2 * off_score + w3 * hate_score
-    else:
-        composite = tox
-
-    return {
-        "tox": tox,
-        "off": off_score,
-        "hate": hate_score,
-        "score": composite
-    }
-
-
-# ---------- Discord ----------
-def post_discord(webhook: Optional[str], content: str) -> bool:
-    if not webhook:
-        return False
-    try:
-        r = requests.post(
-            webhook,
-            json={"content": content},
-            timeout=15
-        )
-        if r.status_code // 100 == 2:
-            return True
-        logging.warning("Discord post failed: %s %s", r.status_code, r.text[:200])
-        return False
-    except Exception as e:
-        logging.warning("Discord post exception: %s", e)
-        return False
-
-
-# ---------- Modlog refresh ----------
-def refresh_modlog_async(reddit, cfg: Config, stop_flag: threading.Event):
-    """Quiet periodic updater. De-dupes report_outcomes by action + fullname."""
-    def once():
-        try:
-            sub = reddit.subreddit(cfg.subreddits[0])
-            lookback = utcnow() - timedelta(days=cfg.modlog_lookback_days)
-            cutoff = lookback.replace(tzinfo=timezone.utc).timestamp()
-
-            existing = read_jsonl(cfg.decisions_path)
-            seen = set((e.get("action_id"), e.get("target_fullname")) for e in existing if e.get("action_id"))
-            wrote = 0
-
-            for action in sub.mod.log(limit=cfg.modlog_limit):
-                # action.created_utc is float epoch
-                if float(action.created_utc) < cutoff:
-                    break
-                tfn = None
-                if getattr(action, "target_fullname", None):
-                    tfn = action.target_fullname
-                else:
-                    # reconstruct if possible
-                    tid = getattr(action, "target_fullname", None) or getattr(action, "target_fullname", None)
-                    if tid:
-                        tfn = to_fullname(tid)
-                    elif getattr(action, "target_body", None) and getattr(action, "target_perm", None):
-                        # last-ditch, skip
-                        continue
-
-                if not tfn:
-                    continue
-
-                key = (getattr(action, "id", None), tfn)
-                if key in seen:
-                    continue
-                act = str(getattr(action, "action", "")).lower()
-                # Only care about approve/remove
-                if act not in ("removecomment", "approvelink", "approvecomment", "removelink"):
-                    continue
-
-                rec = {
-                    "action_id": getattr(action, "id", None),
-                    "target_fullname": tfn,
-                    "raw_action": act,
-                    "mod": str(getattr(action, "mod", "")),
-                    "created_utc": float(getattr(action, "created_utc", ts()))
-                }
-                append_jsonl(cfg.decisions_path, rec)
-                wrote += 1
-                time.sleep(cfg.modlog_per_request_sleep)
-            if wrote:
-                logging.info("Modlog refresh wrote %d new actions.", wrote)
-        except Exception as e:
-            logging.warning("Modlog refresh failed: %s", e)
-
-    # initial jittered delay so we don't stampede at boot
-    delay = jitter_seconds(1, 5)
-    time.sleep(delay)
-    while not stop_flag.is_set():
-        once()
-        # interval with jitter minutes
-        # Sleep in small chunks so we can exit fast
-        total = cfg.modlog_refresh_interval_hours * 3600 + cfg.modlog_refresh_jitter_min * 60 * random.random()
-        slept = 0
-        while slept < total and not stop_flag.is_set():
-            time.sleep(min(5, total - slept))
-            slept += 5
-
-
-# ---------- Summary ----------
-def safe_pct(curr: int, prev: int) -> str:
-    if prev <= 0:
-        return "+∞% vs prior"
-    delta = (curr - prev) / prev * 100.0
-    sign = "+" if delta >= 0 else ""
-    return f"{sign}{delta:.1f}% vs prior"
-
-def fmt_ratio(n: float) -> str:
-    if math.isnan(n) or math.isinf(n):
-        return "n/a"
-    return f"{n:.1f}%"
-
-def read_summary_state(path: Path) -> Optional[float]:
-    if not path.exists():
-        return None
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        if "last_posted_ts" in raw:
-            return float(raw["last_posted_ts"])
-        # backward compat: ISO timestamp
-        if "last_posted_at" in raw:
-            try:
-                dt = datetime.fromisoformat(raw["last_posted_at"].replace("Z", "+00:00"))
-                return dt.timestamp()
-            except Exception:
-                return None
-    except Exception:
-        return None
-    return None
-
-def write_summary_state(path: Path, now_ts: float) -> None:
-    save_text(path, json.dumps({"last_posted_ts": now_ts}, ensure_ascii=False))
-
-def build_weekly_summary(cfg: Config) -> str:
-    now = utcnow()
-    start = now - timedelta(days=7)
-    prev_start = start - timedelta(days=7)
-    prev_end = start
-
-    # load scans/reports
-    scans = read_jsonl(cfg.state_path)
-    decisions = read_jsonl(cfg.decisions_path)
-
-    def in_window(rec, lo: float, hi: float) -> bool:
-        t = float(rec.get("ts", 0.0))
-        return lo <= t < hi
-
-    # Normalize all fullnames
-    for r in scans:
-        if "target_fullname" in r:
-            r["target_fullname"] = to_fullname(r["target_fullname"])
-        elif "id" in r:
-            # old schema: reported/non-reported lines with comment ids
-            # treat as comments by default
-            r["target_fullname"] = to_fullname(r["id"], "comment")
-
-    for d in decisions:
-        d["target_fullname"] = to_fullname(d.get("target_fullname", ""))
-
-    # Windows (epoch)
-    lo = start.timestamp()
-    hi = now.timestamp()
-    plo = prev_start.timestamp()
-    phi = prev_end.timestamp()
-
-    scans_w = [r for r in scans if in_window(r, lo, hi)]
-    scans_prev = [r for r in scans if in_window(r, plo, phi)]
-
-    # toxicity averages
-    def avg_tox(rows):
-        vals = [float(r.get("tox", 0.0)) for r in rows if "tox" in r]
-        return (sum(vals) / len(vals)) if vals else 0.0
-
-    avg_all = avg_tox(scans_w)
-    rep_w = [r for r in scans_w if r.get("reported") is True]
-    avg_rep = avg_tox(rep_w)
-
-    # reported counts (current / prior)
-    reported_ids = {r["target_fullname"] for r in rep_w}
-    reported_prev_ids = {to_fullname(r.get("target_fullname", r.get("id", "")))
-                         for r in scans_prev if r.get("reported") is True}
-
-    reported_count = len(reported_ids)
-    reported_prev_count = len(reported_prev_ids)
-
-    # map decisions by target
-    by_target = {}
-    for d in decisions:
-        key = d.get("target_fullname")
-        if not key:
-            continue
-        L = by_target.setdefault(key, [])
-        L.append(d)
-
-    # decision windows for lag
-    lag_sec = cfg.decision_lag_hours * 3600.0
-    cutoff_pending = now.timestamp() - lag_sec
-
-    removed = 0
-    approved = 0
-    pending = 0
-    for r in rep_w:
-        tfn = r["target_fullname"]
-        r_ts = float(r.get("ts", 0.0))
-        acts = [a for a in by_target.get(tfn, [])]
-        # see if any remove/approve occurred after report time
-        decided = False
-        for a in acts:
-            act = a.get("raw_action", "").lower()
-            at = float(a.get("created_utc", 0.0))
-            if at < r_ts:
-                continue
-            if act in ("removecomment", "removelink"):
-                removed += 1
-                decided = True
-                break
-            if act in ("approvecomment", "approvelink"):
-                approved += 1
-                decided = True
-                break
-        if not decided:
-            if r_ts >= cutoff_pending:
-                pending += 1
-
-    left_up = max(0, reported_count - removed - approved - pending)
-
-    # Alignment = removed / reported, capped at 100
-    align = 0.0 if reported_count == 0 else min(100.0, removed * 100.0 / reported_count)
-
-    # prior metrics for deltas
-    removed_prev = 0
-    approved_prev = 0
-    for pid in reported_prev_ids:
-        acts = by_target.get(pid, [])
-        # use prev week boundaries
-        # A removal is counted if it occurred in [prev_start, prev_end)
-        for a in acts:
-            act = a.get("raw_action", "").lower()
-            at = float(a.get("created_utc", 0.0))
-            if not (plo <= at < phi):
-                continue
-            if act in ("removecomment", "removelink"):
-                removed_prev += 1
-                break
-            if act in ("approvecomment", "approvelink"):
-                approved_prev += 1
-                break
-
-    # deltas
-    avg_all_prev = avg_tox([r for r in scans_prev])
-    avg_rep_prev = avg_tox([r for r in scans_prev if r.get("reported") is True])
-
-    lines = []
-    date_str = f"{start.strftime('%b %d, %Y')}–{now.strftime('%b %d, %Y')}"
-    thresh = cfg.composite_threshold if cfg.composite_enable else float(os.getenv("THRESHOLD", "0.85"))
-    lines.append(f":bar_chart: Weekly Toxicity Summary (UTC) {date_str}")
-    lines.append(f"• Current threshold: {thresh:.2f}")
-    lines.append(f"• Average toxicity this week (all scanned): {avg_all:.2f} ({safe_pct(round(avg_all*1000), round(avg_all_prev*1000))})")
-    lines.append(f"• Average toxicity this week (reported): {avg_rep:.2f} ({safe_pct(round(avg_rep*1000), round(avg_rep_prev*1000))})")
-    lines.append(f"• Total reported comments: {reported_count} ({safe_pct(reported_count, reported_prev_count)})")
-    lines.append(f"• Reported comments removed by mods: {removed} ({safe_pct(removed, removed_prev)})")
-    lines.append(f"• Approved by mods: {approved} ({safe_pct(approved, approved_prev)})")
-    lines.append(f"• Left up (past lag): {left_up}")
-    lines.append(f"• Pending decisions (within {cfg.decision_lag_hours}h): {pending}")
-    lines.append(f"• % of reports aligned with mod removal: {fmt_ratio(align)}")
-
-    return "\n".join(lines)
-
-
-def maybe_post_weekly_summary(cfg: Config) -> None:
-    if not cfg.enable_weekly_summary or not cfg.summary_webhook:
-        return
-    last_ts = read_summary_state(cfg.summary_state_path)
-    now_ts = ts()
-    interval = cfg.summary_interval_days * 86400
-    # only post if last post is missing or older than interval
-    if last_ts is not None and (now_ts - last_ts) < interval:
-        logging.info("Weekly summary not due yet.")
-        return
-
-    try:
-        logging.info("Building weekly summary (window=%dd)...", cfg.summary_interval_days)
-        content = build_weekly_summary(cfg)
-        if post_discord(cfg.summary_webhook, content):
-            logging.info("Posted weekly summary to Discord.")
-            write_summary_state(cfg.summary_state_path, now_ts)
-        else:
-            logging.warning("Failed to post weekly summary to Discord.")
-    except Exception as e:
-        logging.warning("Weekly summary build error: %s", e)
-
-
-# ---------- Main bot ----------
-def setup_logging(cfg: Config):
-    lvl = getattr(logging, cfg.log_level.upper(), logging.INFO)
+def setup_logging(level: str) -> None:
     logging.basicConfig(
-        level=lvl,
+        level=getattr(logging, level, logging.INFO),
         format="%(asctime)s | %(levelname)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
     )
 
-def reddit_client(cfg: Config):
-    r = praw.Reddit(
+
+# -------------------------------
+# Reddit
+# -------------------------------
+
+def praw_client(cfg: Config) -> praw.Reddit:
+    reddit = praw.Reddit(
         client_id=cfg.client_id,
         client_secret=cfg.client_secret,
         username=cfg.username,
         password=cfg.password,
         user_agent=cfg.user_agent,
-        ratelimit_seconds=5
+        ratelimit_seconds=60,
     )
-    # sanity check
-    me = None
+    me = reddit.user.me()
+    logging.info(f"Authenticated as u/{me.name}")
+    return reddit
+
+
+# -------------------------------
+# Pre-filter using Detoxify
+# -------------------------------
+
+import re
+
+# ============================================
+# LOAD PATTERNS FROM JSON
+# ============================================
+
+PATTERNS_FILE = "moderation_patterns.json"
+
+def load_moderation_patterns(path: str = PATTERNS_FILE) -> Dict:
+    """Load moderation patterns from JSON file"""
     try:
-        me = str(r.user.me())
-    except Exception:
-        pass
-    logging.info("Authenticated as u/%s", me or cfg.username or "unknown")
-    return r
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        logging.warning(f"Patterns file not found at {path}, using defaults")
+        return {}
+    except json.JSONDecodeError as e:
+        logging.warning(f"Could not parse {path}: {e}, using defaults")
+        return {}
 
-def permal(c) -> str:
-    try:
-        return f"https://www.reddit.com{c.permalink}"
-    except Exception:
-        fid = to_fullname(getattr(c, "id", ""), "comment")
-        return f"(no permalink for {fid})"
+# Load patterns at module level
+PATTERNS = load_moderation_patterns()
 
-def load_seen_ids(cfg: Config) -> set:
-    rows = read_jsonl(cfg.state_path)
-    ids = set()
-    for r in rows:
-        ids.add(to_fullname(r.get("target_fullname", r.get("id", ""))))
-    return ids
+# ============================================
+# 1. TEXT NORMALIZATION & DE-OBFUSCATION
+# ============================================
 
-def record_scan(cfg: Config, c, verdict: str, tox: float, reported: bool):
-    rec = {
-        "id": getattr(c, "id", None) or "",
-        "target_fullname": to_fullname(getattr(c, "id", ""),"comment"),
-        "subreddit": str(getattr(c, "subreddit", "unknown")),
-        "verdict": verdict,
-        "tox": float(tox),
-        "reported": bool(reported),
-        "ts": ts()
-    }
-    append_jsonl(cfg.state_path, rec)
+# Get leet map from JSON or use defaults
+LEET_MAP = PATTERNS.get("obfuscation_map", {}).get("leet_speak", {
+    '0': 'o', '1': 'i', '3': 'e', '4': 'a', '5': 's',
+    '7': 't', '8': 'b', '@': 'a', '$': 's', '!': 'i',
+})
 
-def report_comment(cfg: Config, c, verdict: str, confidence: float):
-    if cfg.dry_run or not cfg.enable_reddit_reports:
-        return True
-    try:
-        reason = cfg.report_reason_template.format(verdict=verdict, confidence=f"{confidence:.2f}")
-        # actual report call
-        c.report(reason)
-        return True
-    except Exception as e:
-        logging.warning("Reddit report failed on %s: %s", getattr(c, "id", "?"), e)
-        return False
+# Get common evasions from JSON
+COMMON_EVASIONS = PATTERNS.get("obfuscation_map", {}).get("common_evasions", {
+    "ph": "f", "ck": "k"
+})
 
-def scan_loop(reddit, cfg: Config, stop_flag: threading.Event):
-    sub = reddit.subreddit("+".join(cfg.subreddits))
-    seen = load_seen_ids(cfg)
-    logging.info("Starting ToxicReportBot; tracking %d previously-reported items", len(seen))
+def normalize_text(text: str) -> str:
+    """
+    Normalize text for pattern matching.
+    Returns lowercase with common obfuscations removed.
+    """
+    result = text.lower()
+    
+    # Replace leet speak
+    for leet, normal in LEET_MAP.items():
+        result = result.replace(leet, normal)
+    
+    # Apply common evasions
+    for evasion, replacement in COMMON_EVASIONS.items():
+        result = result.replace(evasion, replacement)
+    
+    return result
 
-    # PRAW stream; use pause_after so we can check stop flag
-    stream = sub.stream.comments(skip_existing=True, pause_after=5)
-    for c in stream:
-        if stop_flag.is_set():
-            break
-        if c is None:
+def squash_text(text: str) -> str:
+    """
+    Remove spaces and punctuation for catching spaced-out evasions.
+    "k y s" -> "kys", "s.h" -> "sh"
+    """
+    result = normalize_text(text)
+    result = re.sub(r'[^a-z0-9]', '', result)
+    return result
+
+
+# ============================================
+# 2. BUILD PATTERN LISTS FROM JSON
+# ============================================
+
+def build_slur_sets() -> Tuple[set, set]:
+    """
+    Build separate sets for single-word slurs and multi-word slur phrases.
+    Returns (slur_words, slur_phrases)
+    """
+    slur_words = set()
+    slur_phrases = set()
+    slurs_data = PATTERNS.get("slurs", {})
+    for category, words in slurs_data.items():
+        if category.startswith("_"):
             continue
+        if isinstance(words, list):
+            for w in words:
+                w_lower = w.lower()
+                if ' ' in w_lower:
+                    slur_phrases.add(w_lower)
+                else:
+                    slur_words.add(w_lower)
+    return slur_words, slur_phrases
+
+def build_self_harm_set() -> set:
+    """Build set of self-harm phrases from JSON"""
+    phrases = set()
+    self_harm = PATTERNS.get("self_harm", {}).get("phrases", [])
+    phrases.update(p.lower() for p in self_harm)
+    return phrases
+
+def build_threat_set() -> set:
+    """Build set of threat phrases from JSON"""
+    phrases = set()
+    threats = PATTERNS.get("threats", {})
+    for category, words in threats.items():
+        if category.startswith("_"):
+            continue
+        if isinstance(words, list):
+            phrases.update(w.lower() for w in words)
+    return phrases
+
+def build_sexual_violence_set() -> set:
+    """Build set of sexual violence phrases from JSON"""
+    phrases = PATTERNS.get("sexual_violence", {}).get("phrases", [])
+    return set(p.lower() for p in phrases)
+
+def build_brigading_set() -> set:
+    """Build set of brigading/harassment phrases from JSON"""
+    phrases = PATTERNS.get("brigading_harassment", {}).get("phrases", [])
+    return set(p.lower() for p in phrases)
+
+def build_shill_set() -> set:
+    """Build set of shill accusation phrases from JSON"""
+    terms = PATTERNS.get("shill_accusations", {}).get("terms", [])
+    return set(t.lower() for t in terms)
+
+def build_dismissive_hostile_set() -> set:
+    """Build set of dismissive/hostile phrases from JSON"""
+    phrases = PATTERNS.get("dismissive_hostile", {}).get("phrases", [])
+    return set(p.lower() for p in phrases)
+
+def build_insult_sets() -> Tuple[set, set]:
+    """
+    Build sets for direct insults from JSON.
+    Returns (insult_words, insult_phrases)
+    """
+    insult_words = set()
+    insult_phrases = set()
+    insults_data = PATTERNS.get("insults_direct", {})
+    for category, words in insults_data.items():
+        if category.startswith("_"):
+            continue
+        if isinstance(words, list):
+            for w in words:
+                w_lower = w.lower()
+                if ' ' in w_lower:
+                    insult_phrases.add(w_lower)
+                else:
+                    insult_words.add(w_lower)
+    return insult_words, insult_phrases
+
+def build_benign_phrases_set() -> set:
+    """Build set of benign skip phrases from JSON - PHRASES ONLY, not single words"""
+    phrases = set()
+    benign = PATTERNS.get("benign_skip", {})
+    for category, words in benign.items():
+        if category.startswith("_"):
+            continue
+        if isinstance(words, list):
+            # Only add multi-word phrases
+            for phrase in words:
+                if ' ' in phrase:  # Must be a phrase, not a single word
+                    phrases.add(phrase.lower())
+    return phrases
+
+def build_violence_illegal_set() -> set:
+    """Build set of violence/illegal advocacy phrases from JSON"""
+    phrases = PATTERNS.get("violence_illegal_advocacy", {}).get("phrases", [])
+    return set(p.lower() for p in phrases)
+
+def build_contextual_terms_sets() -> Tuple[set, set]:
+    """
+    Build sets of contextual sensitive terms from JSON.
+    These are ambiguous terms that should only escalate with additional signals.
+    Returns (context_words, context_phrases)
+    """
+    context_words = set()
+    context_phrases = set()
+    contextual = PATTERNS.get("contextual_sensitive_terms", {})
+    for category, words in contextual.items():
+        if category.startswith("_"):
+            continue
+        if isinstance(words, list):
+            for w in words:
+                w_lower = w.lower()
+                if ' ' in w_lower:
+                    context_phrases.add(w_lower)
+                else:
+                    context_words.add(w_lower)
+    return context_words, context_phrases
+
+# Build sets at module level
+SLUR_WORDS, SLUR_PHRASES = build_slur_sets()
+SELF_HARM_PHRASES = build_self_harm_set()
+THREAT_PHRASES = build_threat_set()
+SEXUAL_VIOLENCE_PHRASES = build_sexual_violence_set()
+BRIGADING_PHRASES = build_brigading_set()
+SHILL_PHRASES = build_shill_set()
+DISMISSIVE_HOSTILE_PHRASES = build_dismissive_hostile_set()
+INSULT_WORDS, INSULT_PHRASES = build_insult_sets()
+VIOLENCE_ILLEGAL_PHRASES = build_violence_illegal_set()
+CONTEXTUAL_WORDS, CONTEXTUAL_PHRASES = build_contextual_terms_sets()
+BENIGN_PHRASES_SET = build_benign_phrases_set()
+
+# Note: Pattern counts are logged when SmartPreFilter initializes (after logging is configured)
+
+# ============================================
+# 3. MUST-ESCALATE REGEX PATTERNS
+# ============================================
+
+def build_must_escalate_regex() -> List[re.Pattern]:
+    """Build compiled regex patterns from JSON"""
+    patterns = PATTERNS.get("regex_patterns", {}).get("must_escalate", [])
+    compiled = []
+    for p in patterns:
+        try:
+            compiled.append(re.compile(p, re.IGNORECASE))
+        except re.error as e:
+            logging.warning(f"Invalid regex pattern '{p}': {e}")
+    return compiled
+
+MUST_ESCALATE_RE = build_must_escalate_regex()
+
+# Benign phrase regex for exact matching short exclamations
+BENIGN_PHRASES_RE = [
+    re.compile(r'^(holy\s+)?(shit|fuck|crap|hell|cow)!*$', re.IGNORECASE),
+    re.compile(r'^what\s+the\s+(fuck|hell|heck)\??!*$', re.IGNORECASE),
+    re.compile(r'^(oh\s+)?(my\s+)?(god|gosh|lord)!*$', re.IGNORECASE),
+    re.compile(r'^(damn|dang|darn)!*$', re.IGNORECASE),
+    re.compile(r'^no\s+(fucking|freaking)?\s*way!*$', re.IGNORECASE),
+    re.compile(r'^(wow|whoa|woah)!*$', re.IGNORECASE),
+    re.compile(r'^(omg|wtf|lol|lmao)!*$', re.IGNORECASE),
+]
+
+
+# ============================================
+# 4. DIRECTEDNESS CHECK
+# ============================================
+
+def is_strongly_directed(text: str) -> bool:
+    """
+    Check if comment is STRONGLY directed at another user.
+    Use this for threshold lowering and shill accusation logic.
+    
+    Strong signals: explicit user reference, "you/your", "OP", "mods"
+    """
+    text_lower = text.lower()
+    
+    # Explicit user mention
+    if re.search(r'\bu/\w+', text_lower):
+        return True
+    # Direct address
+    if re.search(r'\b(you|your|you\'re|youre|ur)\b', text_lower):
+        return True
+    # OP reference
+    if re.search(r'\bop\b', text_lower):
+        return True
+    # Mod reference (often targeted)
+    if re.search(r'\bmods?\b', text_lower):
+        return True
+    
+    return False
+
+def is_weakly_directed(text: str) -> bool:
+    """
+    Check for weak directedness signals.
+    "this guy", "this dude", etc. - often refers to public figures, not users.
+    """
+    text_lower = text.lower()
+    if re.search(r'\b(this\s+)?(guy|dude|person)\b', text_lower):
+        return True
+    return False
+
+# For backwards compatibility, keep is_directed_at_person as alias for strong
+def is_directed_at_person(text: str) -> bool:
+    """Alias for is_strongly_directed"""
+    return is_strongly_directed(text)
+
+
+# ============================================
+# 5. PHRASE MATCHING HELPERS
+# ============================================
+
+def contains_slur(text: str) -> bool:
+    """
+    Check if text contains any slur words OR slur phrases.
+    Handles both single-word slurs (token match) and multi-word slurs (substring match).
+    """
+    normalized = normalize_text(text)
+    
+    # Check single-word slurs via tokenization
+    words = set(re.findall(r'\b\w+\b', normalized))
+    if words & SLUR_WORDS:
+        return True
+    
+    # Check multi-word slur phrases via substring
+    for phrase in SLUR_PHRASES:
+        if phrase in normalized:
+            return True
+    
+    return False
+
+def contains_self_harm(text: str) -> bool:
+    """Check if text contains self-harm encouragement"""
+    normalized = normalize_text(text)
+    squashed = squash_text(text)
+    
+    # Check squashed for spaced evasions
+    if 'kys' in squashed or 'killyourself' in squashed:
+        return True
+    if 'godie' in squashed or 'drinkbleach' in squashed:
+        return True
+    
+    # Check phrases
+    for phrase in SELF_HARM_PHRASES:
+        if phrase in normalized:
+            return True
+    
+    return False
+
+def contains_threat(text: str) -> bool:
+    """Check if text contains threats"""
+    normalized = normalize_text(text)
+    for phrase in THREAT_PHRASES:
+        if phrase in normalized:
+            return True
+    return False
+
+def contains_sexual_violence(text: str) -> bool:
+    """Check if text contains sexual violence threats"""
+    normalized = normalize_text(text)
+    for phrase in SEXUAL_VIOLENCE_PHRASES:
+        if phrase in normalized:
+            return True
+    return False
+
+def contains_brigading(text: str) -> bool:
+    """Check if text contains brigading/harassment calls"""
+    normalized = normalize_text(text)
+    for phrase in BRIGADING_PHRASES:
+        if phrase in normalized:
+            return True
+    return False
+
+def contains_shill_accusation(text: str) -> bool:
+    """Check if text contains shill/bot accusations"""
+    normalized = normalize_text(text)
+    for phrase in SHILL_PHRASES:
+        if phrase in normalized:
+            return True
+    return False
+
+def contains_dismissive_hostile(text: str) -> bool:
+    """Check if text contains dismissive/hostile phrases"""
+    normalized = normalize_text(text)
+    
+    for phrase in DISMISSIVE_HOSTILE_PHRASES:
+        if ' ' in phrase:
+            # Multi-word phrase: substring match is fine
+            if phrase in normalized:
+                return True
+        else:
+            # Single word: use word boundary to avoid matching inside other words
+            # e.g., "cope" should not match "telescope"
+            pattern = r'\b' + re.escape(phrase) + r'\b'
+            if re.search(pattern, normalized):
+                return True
+    return False
+
+def contains_violence_illegal(text: str) -> bool:
+    """Check if text contains violence/illegal advocacy phrases"""
+    normalized = normalize_text(text)
+    
+    for phrase in VIOLENCE_ILLEGAL_PHRASES:
+        if ' ' in phrase:
+            # Multi-word phrase: substring match is fine
+            if phrase in normalized:
+                return True
+        else:
+            # Single word: use word boundary
+            pattern = r'\b' + re.escape(phrase) + r'\b'
+            if re.search(pattern, normalized):
+                return True
+    return False
+
+def contains_direct_insult(text: str) -> bool:
+    """
+    Check if text contains direct insults (words or phrases).
+    Note: This should be combined with directedness check.
+    """
+    normalized = normalize_text(text)
+    
+    # Check single-word insults
+    words = set(re.findall(r'\b\w+\b', normalized))
+    if words & INSULT_WORDS:
+        return True
+    
+    # Check insult phrases
+    for phrase in INSULT_PHRASES:
+        if phrase in normalized:
+            return True
+    
+    return False
+
+def contains_contextual_term(text: str) -> bool:
+    """
+    Check if text contains contextual sensitive terms (words or phrases).
+    These are ambiguous terms that need additional signals to escalate.
+    """
+    normalized = normalize_text(text)
+    
+    # Check single-word contextual terms
+    words = set(re.findall(r'\b\w+\b', normalized))
+    if words & CONTEXTUAL_WORDS:
+        return True
+    
+    # Check multi-word contextual phrases
+    for phrase in CONTEXTUAL_PHRASES:
+        if phrase in normalized:
+            return True
+    
+    return False
+
+def is_benign_exclamation(text: str) -> bool:
+    """
+    Check if comment is just a benign exclamation.
+    Only matches PHRASES (not single words) and only when NOT strongly directed at someone.
+    """
+    # If strongly directed at someone, don't skip
+    if is_strongly_directed(text):
+        return False
+    
+    # Strip and lowercase, then remove trailing punctuation for matching
+    text_stripped = text.strip().lower()
+    text_clean = text_stripped.rstrip('!?.,;:')
+    
+    # Check regex patterns for exact matches (short exclamations)
+    for pattern in BENIGN_PHRASES_RE:
+        if pattern.match(text_stripped):
+            return True
+    
+    # Check if the entire comment (minus punctuation) is a benign phrase from our list
+    for phrase in BENIGN_PHRASES_SET:
+        if text_clean == phrase:
+            return True
+    
+    return False
+
+
+# ============================================
+# 6. SMART PRE-FILTER CLASS
+# ============================================
+
+class PreFilterResult:
+    """Result of pre-filtering"""
+    MUST_ESCALATE = "MUST_ESCALATE"
+    SEND_TO_LLM = "SEND_TO_LLM"
+    SKIP = "SKIP"
+
+
+class SmartPreFilter:
+    """
+    Multi-layered pre-filter that:
+    1. Always escalates high-priority patterns (threats, slurs, accusations)
+    2. Skips obviously benign enthusiasm
+    3. Uses Detoxify with smart label-specific thresholds
+    4. Considers directedness for borderline cases
+    """
+    
+    def __init__(self, model_name: str = "original"):
+        self.model = None
+        self.available = False
+        
+        try:
+            from detoxify import Detoxify
+            logging.info(f"Loading Detoxify model '{model_name}'...")
+            self.model = Detoxify(model_name)
+            self.available = True
+            logging.info(f"Detoxify model loaded successfully")
+        except ImportError:
+            logging.warning("Detoxify not installed. Using pattern matching only.")
+        except Exception as e:
+            logging.warning(f"Failed to load Detoxify: {e}. Using pattern matching only.")
+        
+        # Log pattern counts
+        logging.info(f"SmartPreFilter patterns: {len(SLUR_WORDS)} slur words, {len(SLUR_PHRASES)} slur phrases, "
+                     f"{len(CONTEXTUAL_WORDS)} contextual words, {len(CONTEXTUAL_PHRASES)} contextual phrases, "
+                     f"{len(SELF_HARM_PHRASES)} self-harm, {len(THREAT_PHRASES)} threats, "
+                     f"{len(INSULT_WORDS)} insult words, {len(INSULT_PHRASES)} insult phrases, "
+                     f"{len(MUST_ESCALATE_RE)} regex patterns")
+        
+        # Stats
+        self.total = 0
+        self.must_escalate = 0
+        self.detoxify_triggered = 0
+        self.benign_skipped = 0
+        self.pattern_skipped = 0
+    
+    def should_analyze(self, text: str, is_top_level: bool = False) -> Tuple[bool, float, Dict[str, float]]:
+        """
+        Determine if comment should be sent to LLM.
+        
+        Args:
+            text: The comment text to analyze
+            is_top_level: Whether this is a top-level comment (not a reply)
+        
+        Returns:
+            (should_send_to_llm, max_score, all_scores)
+        """
+        self.total += 1
+        text_preview = text[:80].replace('\n', ' ')
+        
+        # -----------------------------------------
+        # Layer 1: Must-escalate patterns
+        # -----------------------------------------
+        
+        # Check regex patterns
+        for pattern in MUST_ESCALATE_RE:
+            if pattern.search(text):
+                self.must_escalate += 1
+                logging.info(f"PREFILTER | MUST_ESCALATE (regex) | '{text_preview}...'")
+                return True, 1.0, {"pattern_match": 1.0}
+        
+        # Check slurs (now handles both words and phrases)
+        if contains_slur(text):
+            self.must_escalate += 1
+            logging.info(f"PREFILTER | MUST_ESCALATE (slur) | '{text_preview}...'")
+            return True, 1.0, {"slur": 1.0}
+        
+        # Check self-harm
+        if contains_self_harm(text):
+            self.must_escalate += 1
+            logging.info(f"PREFILTER | MUST_ESCALATE (self-harm) | '{text_preview}...'")
+            return True, 1.0, {"self_harm": 1.0}
+        
+        # Check threats
+        if contains_threat(text):
+            self.must_escalate += 1
+            logging.info(f"PREFILTER | MUST_ESCALATE (threat) | '{text_preview}...'")
+            return True, 1.0, {"threat": 1.0}
+        
+        # Check sexual violence
+        if contains_sexual_violence(text):
+            self.must_escalate += 1
+            logging.info(f"PREFILTER | MUST_ESCALATE (sexual violence) | '{text_preview}...'")
+            return True, 1.0, {"sexual_violence": 1.0}
+        
+        # Check brigading/harassment calls
+        if contains_brigading(text):
+            self.must_escalate += 1
+            logging.info(f"PREFILTER | MUST_ESCALATE (brigading) | '{text_preview}...'")
+            return True, 1.0, {"brigading": 1.0}
+        
+        # Check violence/illegal advocacy (e.g., "shoot it down", "shine a laser")
+        if contains_violence_illegal(text):
+            self.must_escalate += 1
+            logging.info(f"PREFILTER | MUST_ESCALATE (violence/illegal) | '{text_preview}...'")
+            return True, 1.0, {"violence_illegal": 1.0}
+        
+        # Check shill accusations (only if STRONGLY directed at someone)
+        if is_strongly_directed(text) and contains_shill_accusation(text):
+            self.must_escalate += 1
+            logging.info(f"PREFILTER | MUST_ESCALATE (shill accusation) | '{text_preview}...'")
+            return True, 1.0, {"shill_accusation": 1.0}
+        
+        # Check dismissive/hostile
+        # For replies, these phrases are almost always directed at the person being replied to
+        # even if they don't say "you" explicitly (e.g., just "shut up" or "fuck off")
+        if contains_dismissive_hostile(text):
+            if is_strongly_directed(text) or not is_top_level:
+                self.must_escalate += 1
+                context = "directed" if is_strongly_directed(text) else "reply"
+                logging.info(f"PREFILTER | MUST_ESCALATE (dismissive + {context}) | '{text_preview}...'")
+                return True, 1.0, {"dismissive_hostile": 1.0}
+        
+        # Check direct insults + strongly directed (or reply context)
+        if contains_direct_insult(text):
+            if is_strongly_directed(text) or not is_top_level:
+                self.must_escalate += 1
+                context = "directed" if is_strongly_directed(text) else "reply"
+                logging.info(f"PREFILTER | MUST_ESCALATE (insult + {context}) | '{text_preview}...'")
+                return True, 1.0, {"direct_insult": 1.0}
+        
+        # -----------------------------------------
+        # Layer 2: Benign phrase skip
+        # -----------------------------------------
+        
+        if is_benign_exclamation(text):
+            self.benign_skipped += 1
+            logging.info(f"PREFILTER | SKIP (benign phrase, not directed) | '{text_preview}...'")
+            return False, 0.0, {"benign": 1.0}
+        
+        # -----------------------------------------
+        # Layer 3: Detoxify with smart thresholds
+        # -----------------------------------------
+        
+        if not self.available:
+            # No Detoxify - check contextual terms with directedness as fallback
+            if contains_contextual_term(text) and is_strongly_directed(text):
+                self.must_escalate += 1
+                logging.info(f"PREFILTER | SEND (contextual + directed, no detoxify) | '{text_preview}...'")
+                return True, 0.7, {"contextual_directed": 1.0}
+            self.detoxify_triggered += 1
+            logging.info(f"PREFILTER | SEND (no detoxify) | '{text_preview}...'")
+            return True, 0.5, {}
+        
+        try:
+            results = self.model.predict(text)
+            scores = {k: float(v) for k, v in results.items()}
+            
+            # Use STRONG directedness for threshold lowering
+            # Weak directedness ("this guy") in top-level comments is often about public figures
+            is_directed = is_strongly_directed(text)
+            
+            # For top-level comments, weak directedness doesn't count
+            # For replies, weak directedness might matter more
+            if not is_directed and not is_top_level and is_weakly_directed(text):
+                # In a reply, "this guy" is more likely to mean the person being replied to
+                is_directed = True
+            
+            # Check contextual terms - escalate if directed OR identity_attack is elevated
+            has_contextual = contains_contextual_term(text)
+            identity_attack_score = scores.get('identity_attack', 0)
+            
+            if has_contextual and (is_directed or identity_attack_score > 0.25):
+                self.must_escalate += 1
+                reason = "directed" if is_directed else f"identity_attack={identity_attack_score:.2f}"
+                logging.info(f"PREFILTER | SEND (contextual term + {reason}) | '{text_preview}...'")
+                return True, max(0.7, identity_attack_score), scores
+            
+            # Thresholds per label (lower = more sensitive)
+            # Lowered thresholds to catch more edge cases - within API limits
+            thresholds = {
+                'threat': 0.15,           # Was 0.25
+                'severe_toxicity': 0.20,  # Was 0.30
+                'identity_attack': 0.25,  # Was 0.35
+                'insult': 0.40 if is_directed else 0.60,  # Was 0.55/0.75
+                'toxicity': 0.40 if is_directed else 0.50, # Was 0.60/0.80
+                'obscene': 0.90,  # Still mostly ignore
+            }
+            
+            triggered_labels = []
+            for label, score in scores.items():
+                threshold = thresholds.get(label, 0.7)
+                if score >= threshold:
+                    triggered_labels.append(f"{label}={score:.2f}")
+            
+            if triggered_labels:
+                self.detoxify_triggered += 1
+                max_score = max(scores.values())
+                directed_str = "directed" if is_directed else "not directed"
+                top_level_str = "top-level" if is_top_level else "reply"
+                logging.info(f"PREFILTER | SEND (detoxify: {', '.join(triggered_labels)}) [{directed_str}, {top_level_str}] | '{text_preview}...'")
+                return True, max_score, scores
+            
+            self.pattern_skipped += 1
+            max_score = max(scores.values())
+            top_label = max(scores, key=scores.get)
+            logging.info(f"PREFILTER | SKIP (detoxify below threshold, top: {top_label}={max_score:.2f}) | '{text_preview}...'")
+            return False, max_score, scores
+            
+        except Exception as e:
+            logging.warning(f"Detoxify scoring failed: {e}. Sending to LLM.")
+            self.detoxify_triggered += 1
+            return True, 0.5, {}
+    
+    def get_stats(self) -> str:
+        if self.total == 0:
+            return "No comments processed yet"
+        
+        sent = self.must_escalate + self.detoxify_triggered
+        skipped = self.benign_skipped + self.pattern_skipped
+        pct_skipped = (skipped / self.total) * 100
+        
+        return (
+            f"Total: {self.total} | "
+            f"Sent to LLM: {sent} (must_escalate: {self.must_escalate}, detoxify: {self.detoxify_triggered}) | "
+            f"Skipped: {skipped} ({pct_skipped:.1f}%)"
+        )
+
+
+# Alias for backward compatibility
+DetoxifyFilter = SmartPreFilter
+
+
+# -------------------------------
+# LLM Analysis
+# -------------------------------
+
+@dataclass
+class AnalysisResult:
+    """Result from LLM comment analysis"""
+    verdict: Verdict
+    reason: str
+    confidence: str  # "high", "medium", "low"
+    raw_response: str
+    detoxify_score: float = 0.0  # Pre-filter score that triggered analysis
+
+
+class LLMAnalyzer:
+    """Uses Groq (free tier) to analyze comments for toxicity with context understanding"""
+    
+    def __init__(self, api_key: str, model: str, guidelines: str, 
+                 fallback_model: str = None, daily_limit: int = 240,
+                 requests_per_minute: int = 2):
+        self.client = Groq(api_key=api_key)
+        self.primary_model = model
+        self.fallback_model = fallback_model
+        self.daily_limit = daily_limit
+        self.guidelines = guidelines
+        self.requests_per_minute = requests_per_minute
+        
+        # Track daily usage
+        self.daily_calls = 0
+        self.last_reset_date = time.strftime("%Y-%m-%d")
+        self.using_fallback = False
+        
+        # Rate limiting - track last request time
+        self.last_request_time = 0
+        self.min_request_interval = 60.0 / requests_per_minute  # seconds between requests
+        
+        # Total stats
+        self.api_calls = 0
+    
+    def _wait_for_rate_limit(self) -> None:
+        """Wait if needed to respect rate limit"""
+        now = time.time()
+        time_since_last = now - self.last_request_time
+        
+        if time_since_last < self.min_request_interval:
+            wait_time = self.min_request_interval - time_since_last
+            logging.debug(f"Rate limiting: waiting {wait_time:.1f}s before next Groq request")
+            time.sleep(wait_time)
+        
+        self.last_request_time = time.time()
+    
+    def _get_current_model(self) -> str:
+        """Get the model to use, checking if we need to switch to fallback"""
+        today = time.strftime("%Y-%m-%d")
+        
+        # Reset counter if it's a new day
+        if today != self.last_reset_date:
+            logging.info(f"New day detected - resetting daily counter (was {self.daily_calls})")
+            self.daily_calls = 0
+            self.last_reset_date = today
+            self.using_fallback = False
+        
+        # Check if we need to switch to fallback
+        if self.fallback_model and self.daily_calls >= self.daily_limit:
+            if not self.using_fallback:
+                logging.warning(f"Daily limit ({self.daily_limit}) reached for {self.primary_model}, switching to fallback: {self.fallback_model}")
+                self.using_fallback = True
+            return self.fallback_model
+        
+        return self.primary_model
+    
+    def _parse_retry_time(self, error_str: str) -> float:
+        """
+        Parse retry wait time from Groq error messages.
+        Examples: "Please try again in 5m20.3712s", "try again in 30s", "try again in 2m5s"
+        Returns seconds as float, or None if not parseable.
+        """
+        import re
+        
+        # Look for pattern like "try again in Xm Ys" or "try again in Xs"
+        match = re.search(r'try again in (\d+m)?(\d+(?:\.\d+)?s)?', error_str.lower())
+        if not match:
+            return None
+        
+        total_seconds = 0.0
+        
+        minutes_part = match.group(1)
+        seconds_part = match.group(2)
+        
+        if minutes_part:
+            minutes = float(minutes_part.rstrip('m'))
+            total_seconds += minutes * 60
+        
+        if seconds_part:
+            seconds = float(seconds_part.rstrip('s'))
+            total_seconds += seconds
+        
+        return total_seconds if total_seconds > 0 else None
+    
+    def analyze(self, text: str, subreddit: str, parent_context: str = "", 
+                detoxify_score: float = 0.0, is_top_level: bool = False, 
+                post_title: str = "") -> AnalysisResult:
+        """Send to Groq for nuanced analysis"""
+        
+        current_model = self._get_current_model()
+        
+        system_prompt = f"""{self.guidelines}"""
+
+        # Add context about comment type for accurate reasoning
+        if is_top_level:
+            context_note = "[TOP-LEVEL COMMENT on a post - not replying to another user]"
+        else:
+            context_note = "[REPLY to another user's comment]"
+        
+        # Build user prompt with post title and context
+        user_prompt = f"{context_note}\n"
+        
+        if post_title:
+            user_prompt += f"Post title: \"{post_title}\"\n"
+        
+        if parent_context:
+            user_prompt += f"Parent context: {parent_context[:300]}\n"
+        
+        user_prompt += f"\nAnalyze this comment:\n\n{text}"
+
+        # Debug: log what we're sending
+        logging.debug(f"GROQ SYSTEM PROMPT LENGTH: {len(system_prompt)} chars")
+        logging.debug(f"GROQ USER PROMPT: {user_prompt[:500]}")
+        logging.debug(f"GROQ MODEL: {current_model} (daily calls: {self.daily_calls}/{self.daily_limit})")
 
         try:
-            text = str(getattr(c, "body", "") or "")
-            s = score_text(text, cfg)
-            score = s["score"]
-            tox = s["tox"]
-            off = s["off"]
-            hate = s["hate"]
-
-            band = "LOW"
-            if score >= cfg.conf_very_high:
-                band = "VERY HIGH"
-            elif score >= cfg.conf_high:
-                band = "HIGH"
-            elif score >= cfg.conf_medium:
-                band = "MEDIUM"
-
-            subname = str(getattr(c, "subreddit", "")).lower()
-            components = f" | tox={tox:.4f} off={off:.4f} hate={hate:.4f}" if cfg.log_show_components else ""
-            body_echo = f" | {text[:280].replace(chr(10),' ')}" if cfg.log_show_comment else ""
-            logging.info("SCAN %s | %.4f | %s | %s%s%s",
-                         to_fullname(getattr(c, "id", ""),"comment"),
-                         score, band, subname, components, body_echo)
-
-            should = score >= cfg.composite_threshold if cfg.composite_enable else tox >= float(os.getenv("THRESHOLD","0.85"))
-            reported = False
-            if should:
-                ok = report_comment(cfg, c, "TOXIC", score)
-                reported = ok
-                logging.info("Reported comment %s @ %.2f: %s",
-                             to_fullname(getattr(c, "id",""),"comment"),
-                             score, permal(c))
-
-            record_scan(cfg, c, "TOXIC" if should else "NOT TOXIC", tox, reported)
-
+            # Wait if needed to respect our own rate limit
+            self._wait_for_rate_limit()
+            
+            self.api_calls += 1
+            self.daily_calls += 1
+            
+            # Models to try in order of quality (best first)
+            # Based on Groq free tier limits:
+            # - groq/compound: 250 RPD, uses multiple models internally (best quality)
+            # - llama-3.3-70b-versatile: 1K RPD, 100K TPD (great quality)
+            # - meta-llama/llama-4-scout-17b-16e-instruct: 1K RPD, 500K TPD (good quality)
+            # - llama-3.1-8b-instant: 14.4K RPD, 500K TPD (decent quality, highest limits)
+            quality_ordered_models = [
+                "groq/compound",
+                "llama-3.3-70b-versatile",
+                "meta-llama/llama-4-scout-17b-16e-instruct",
+                "llama-3.1-8b-instant",
+            ]
+            
+            # Start with configured model, then fall through quality chain
+            models_to_try = []
+            if current_model not in quality_ordered_models:
+                models_to_try.append(current_model)
+            for m in quality_ordered_models:
+                if m not in models_to_try:
+                    models_to_try.append(m)
+            
+            last_error = None
+            response = None
+            success = False
+            
+            for model_idx, model_to_use in enumerate(models_to_try):
+                if success:
+                    break
+                    
+                # Retry logic for each model
+                max_retries = 2 if model_idx > 0 else 3  # Fewer retries for fallbacks
+                retry_delay = 3  # seconds
+                
+                logging.info(f"Trying model {model_idx + 1}/{len(models_to_try)}: {model_to_use}")
+                
+                for attempt in range(max_retries):
+                    try:
+                        response = self.client.chat.completions.create(
+                            model=model_to_use,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt}
+                            ],
+                            max_tokens=100,
+                            temperature=0.1,  # Low temp for consistent classification
+                        )
+                        if model_to_use != models_to_try[0]:
+                            logging.info(f"Successfully used fallback model: {model_to_use}")
+                        success = True
+                        break  # Success - exit retry loop
+                        
+                    except Exception as e:
+                        error_str = str(e)
+                        last_error = e
+                        if "429" in error_str or "rate_limit" in error_str.lower():
+                            # Parse wait time from error message like "Please try again in 5m20.3712s"
+                            suggested_wait = self._parse_retry_time(error_str)
+                            
+                            # If wait time is short (< 30s), wait and retry same model
+                            # If wait time is long, skip to next model immediately
+                            if suggested_wait and suggested_wait <= 30 and attempt < max_retries - 1:
+                                logging.warning(f"Rate limited on {model_to_use}, waiting {suggested_wait:.0f}s (from API) before retry {attempt + 2}/{max_retries}")
+                                time.sleep(suggested_wait)
+                                continue
+                            elif suggested_wait and suggested_wait > 30:
+                                logging.warning(f"Rate limited on {model_to_use} for {suggested_wait:.0f}s - too long, trying next model...")
+                                break  # Exit retry loop, try next model
+                            elif attempt < max_retries - 1:
+                                wait_time = retry_delay * (attempt + 1)
+                                logging.warning(f"Rate limited on {model_to_use}, waiting {wait_time}s before retry {attempt + 2}/{max_retries}")
+                                time.sleep(wait_time)
+                                continue
+                            else:
+                                # Out of retries for this model, try next model
+                                logging.warning(f"Rate limit exhausted for {model_to_use}, trying next model...")
+                                break  # Exit retry loop, try next model
+                        else:
+                            # Non-rate-limit error - log and try next model
+                            logging.warning(f"Error on {model_to_use}: {e}, trying next model...")
+                            break
+            
+            if not success:
+                # All models exhausted
+                raise last_error or Exception("All models rate limited")
+            
+            raw = response.choices[0].message.content.strip()
+            
+            # Debug: log raw response
+            logging.debug(f"GROQ RAW RESPONSE: {raw}")
+            
+            # Parse the plain text response
+            # Expected format:
+            # VERDICT: REPORT | BENIGN
+            # REASON: <short explanation>
+            
+            verdict = Verdict.BENIGN  # Default
+            reason = ""
+            
+            # Normalize the response - handle variations in formatting
+            raw_upper = raw.upper()
+            
+            # Look for verdict
+            if 'VERDICT:' in raw_upper or 'VERDICT :' in raw_upper:
+                for line in raw.split('\n'):
+                    line_stripped = line.strip()
+                    line_upper = line_stripped.upper()
+                    if line_upper.startswith('VERDICT'):
+                        # Extract the verdict value
+                        parts = line_stripped.split(':', 1)
+                        if len(parts) > 1:
+                            verdict_str = parts[1].strip().upper()
+                            if 'REPORT' in verdict_str:
+                                verdict = Verdict.REPORT
+                            else:
+                                verdict = Verdict.BENIGN
+                    elif line_upper.startswith('REASON'):
+                        parts = line_stripped.split(':', 1)
+                        if len(parts) > 1:
+                            reason = parts[1].strip()
+            else:
+                # Fallback: look for REPORT or BENIGN anywhere in response
+                if 'REPORT' in raw_upper and 'BENIGN' not in raw_upper:
+                    verdict = Verdict.REPORT
+                else:
+                    verdict = Verdict.BENIGN
+            
+            # Safeguard: if reason is empty or invalid, use a default
+            if not reason or reason.upper() in ['REPORT', 'BENIGN', 'N/A', 'NONE']:
+                reason = "Flagged for moderator review" if verdict == Verdict.REPORT else "No issues detected"
+            
+            return AnalysisResult(
+                verdict=verdict,
+                reason=reason,
+                confidence="high",  # Not used anymore but kept for compatibility
+                raw_response=raw,
+                detoxify_score=detoxify_score
+            )
+            
         except Exception as e:
-            logging.warning("Inner loop error on %s: %s", getattr(c, "id", "?"), e)
+            logging.error(f"LLM analysis failed after trying all models: {e}")
+            
+            # Default to BENIGN when LLM unavailable - don't auto-report without LLM verification
+            # But log prominently so it can be manually reviewed
+            if detoxify_score >= 0.7:
+                logging.warning(f"⚠️ HIGH DETOXIFY SCORE ({detoxify_score:.2f}) but LLM unavailable - SKIPPING (not reporting)")
+                logging.warning(f"⚠️ This comment may need manual review")
+            
+            return AnalysisResult(
+                verdict=Verdict.BENIGN,
+                reason=f"LLM unavailable - skipped (detox={detoxify_score:.2f})",
+                confidence="low",
+                raw_response="",
+                detoxify_score=detoxify_score
+            )
+    
+    def get_stats(self) -> str:
+        model_status = f"using fallback ({self.fallback_model})" if self.using_fallback else f"using primary ({self.primary_model})"
+        return f"LLM API calls: {self.api_calls} (today: {self.daily_calls}/{self.daily_limit}, {model_status})"
+
+
+# -------------------------------
+# Discord helper (enhanced)
+# -------------------------------
+
+FALSE_POSITIVES_FILE = "false_positives.json"
+
+def post_discord(webhook: str, content: str) -> None:
+    """Post a simple text message to Discord"""
+    if not webhook:
+        return
+    data = json.dumps({"content": content}).encode("utf-8")
+    req = urllib.request.Request(
+        webhook,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "ToxicReportBot/2.0"
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            _ = resp.read()
+    except Exception as e:
+        logging.warning(f"Discord post failed: {e}")
+
+
+def post_discord_embed(webhook: str, title: str, description: str, 
+                       color: int = 0xFF0000, fields: List[Dict] = None,
+                       url: str = None) -> bool:
+    """Post a rich embed message to Discord. Returns True on success."""
+    if not webhook:
+        return False
+    
+    embed = {
+        "title": title[:256],  # Discord limit
+        "description": description[:4096],  # Discord limit
+        "color": color,
+    }
+    
+    if url:
+        embed["url"] = url
+    
+    if fields:
+        # Ensure fields have required structure and respect limits
+        valid_fields = []
+        for f in fields[:25]:  # Discord limit
+            if isinstance(f, dict) and "name" in f and "value" in f:
+                valid_fields.append({
+                    "name": str(f["name"])[:256],  # Discord limit
+                    "value": str(f["value"])[:1024],  # Discord limit
+                    "inline": bool(f.get("inline", False))
+                })
+        if valid_fields:
+            embed["fields"] = valid_fields
+    
+    embed["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    
+    payload = {"embeds": [embed]}
+    data = json.dumps(payload).encode("utf-8")
+    
+    req = urllib.request.Request(
+        webhook,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "ToxicReportBot/2.0"
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            _ = resp.read()
+        return True
+    except urllib.error.HTTPError as e:
+        # Read error response for debugging
+        error_body = ""
+        try:
+            error_body = e.read().decode('utf-8')
+        except:
+            pass
+        logging.warning(f"Discord embed post failed: {e} - {error_body}")
+        return False
+    except Exception as e:
+        logging.warning(f"Discord embed post failed: {e}")
+        return False
+
+
+def notify_discord_report(webhook: str, comment_text: str, permalink: str, 
+                          reason: str, detoxify_score: float) -> None:
+    """Send a Discord notification when a comment is reported"""
+    if not webhook:
+        return
+    
+    # Truncate comment for Discord (keep under embed limit)
+    truncated = comment_text[:1500] + "..." if len(comment_text) > 1500 else comment_text
+    
+    fields = [
+        {"name": "Reason", "value": reason[:1024], "inline": True},
+        {"name": "Detoxify Score", "value": f"{detoxify_score:.2f}", "inline": True},
+    ]
+    
+    post_discord_embed(
+        webhook=webhook,
+        title="🚨 Comment Reported",
+        description=f"```{truncated}```",
+        color=0xFF4444,  # Red
+        fields=fields,
+        url=permalink
+    )
+
+
+def notify_discord_llm_analysis(webhook: str, comment_text: str, permalink: str,
+                                 detoxify_score: float, subreddit: str) -> None:
+    """Send a Discord notification when a comment is sent to LLM for analysis"""
+    if not webhook:
+        return
+    
+    # Truncate comment for Discord
+    truncated = comment_text[:800] + "..." if len(comment_text) > 800 else comment_text
+    
+    fields = [
+        {"name": "Subreddit", "value": f"r/{subreddit}", "inline": True},
+        {"name": "Detoxify Score", "value": f"{detoxify_score:.2f}", "inline": True},
+    ]
+    
+    post_discord_embed(
+        webhook=webhook,
+        title="🔍 Analyzing Comment",
+        description=f"```{truncated}```",
+        color=0x3498DB,  # Blue
+        fields=fields,
+        url=permalink
+    )
+
+
+def notify_discord_verdict(webhook: str, verdict: str, reason: str, 
+                           permalink: str) -> None:
+    """Send a Discord notification with the LLM verdict"""
+    if not webhook:
+        return
+    
+    if verdict == "REPORT":
+        color = 0xFF4444  # Red
+        emoji = "🚨"
+    else:
+        color = 0x44FF44  # Green
+        emoji = "✅"
+    
+    post_discord_embed(
+        webhook=webhook,
+        title=f"{emoji} Verdict: {verdict}",
+        description=f"**Reason:** {reason}",
+        color=color,
+        url=permalink
+    )
+
+
+def notify_discord_borderline_skip(webhook: str, comment_text: str, permalink: str,
+                                    detoxify_score: float, subreddit: str) -> None:
+    """Send a Discord notification for borderline skipped comments"""
+    if not webhook:
+        return
+    
+    # Truncate comment for Discord
+    truncated = comment_text[:800] + "..." if len(comment_text) > 800 else comment_text
+    
+    fields = [
+        {"name": "Subreddit", "value": f"r/{subreddit}", "inline": True},
+        {"name": "Detoxify Score", "value": f"{detoxify_score:.2f}", "inline": True},
+        {"name": "Status", "value": "Skipped (below threshold)", "inline": True},
+    ]
+    
+    post_discord_embed(
+        webhook=webhook,
+        title="⚪ Borderline Skip",
+        description=f"```{truncated}```",
+        color=0x808080,  # Gray
+        fields=fields,
+        url=permalink
+    )
+
+
+def notify_discord_daily_stats(webhook: str, stats: Dict) -> None:
+    """Send daily statistics to Discord"""
+    if not webhook:
+        return
+    
+    total_processed = stats.get("total_processed", 0)
+    sent_to_llm = stats.get("sent_to_llm", 0)
+    reported = stats.get("reported", 0)
+    benign = stats.get("benign", 0)
+    
+    # Accuracy from outcome tracking
+    accuracy_stats = stats.get("accuracy", {})
+    removed = accuracy_stats.get("removed", 0)
+    approved = accuracy_stats.get("approved", 0)
+    pending = accuracy_stats.get("pending", 0)
+    
+    resolved = removed + approved
+    accuracy_pct = (removed / resolved * 100) if resolved > 0 else 0
+    
+    description = f"""
+**Processed:** {total_processed:,} comments
+**Sent to LLM:** {sent_to_llm:,} ({(sent_to_llm/total_processed*100):.1f}% of total)
+**Reported:** {reported:,}
+**Benign:** {benign:,}
+"""
+    
+    fields = [
+        {"name": "📊 Outcome Tracking", "value": f"Removed: {removed}\nApproved: {approved}\nPending: {pending}", "inline": True},
+        {"name": "🎯 Accuracy", "value": f"{accuracy_pct:.1f}%\n({removed}/{resolved} confirmed)", "inline": True},
+    ]
+    
+    # Color based on accuracy
+    if accuracy_pct >= 80:
+        color = 0x44FF44  # Green
+    elif accuracy_pct >= 60:
+        color = 0xFFAA00  # Orange
+    else:
+        color = 0xFF4444  # Red
+    
+    post_discord_embed(
+        webhook=webhook,
+        title="📈 Daily Moderation Stats",
+        description=description,
+        color=color,
+        fields=fields
+    )
+
+
+def load_false_positives() -> List[Dict]:
+    """Load false positives from JSON file"""
+    try:
+        with open(FALSE_POSITIVES_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError:
+        logging.warning(f"Could not parse {FALSE_POSITIVES_FILE}, starting fresh")
+        return []
+
+
+def save_false_positives(entries: List[Dict]) -> None:
+    """Save false positives to JSON file"""
+    with open(FALSE_POSITIVES_FILE, "w", encoding="utf-8") as f:
+        json.dump(entries, f, indent=2)
+
+
+def track_false_positive(comment_id: str, permalink: str, text: str,
+                         groq_reason: str, detoxify_score: float,
+                         reported_at: str) -> None:
+    """Track a false positive (reported comment that was approved)"""
+    entries = load_false_positives()
+    
+    # Don't add duplicates
+    if any(e.get("comment_id") == comment_id for e in entries):
+        return
+    
+    entries.append({
+        "comment_id": comment_id,
+        "permalink": permalink,
+        "text": text[:1000],
+        "groq_reason": groq_reason,
+        "detoxify_score": detoxify_score,
+        "reported_at": reported_at,
+        "discovered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    })
+    
+    save_false_positives(entries)
+    logging.info(f"Tracked false positive: {comment_id}")
+
+
+def check_and_track_false_positives(reddit: praw.Reddit, webhook: str = None) -> Dict[str, int]:
+    """
+    Check reported comments and track false positives.
+    Returns stats and optionally notifies Discord.
+    """
+    comments = load_tracked_comments()
+    now = time.time()
+    stats = {"checked": 0, "removed": 0, "approved": 0, "still_pending": 0, "errors": 0}
+    new_false_positives = []
+    
+    for entry in comments:
+        if entry.get("outcome") != "pending":
+            continue
+        
+        # Check if comment is old enough (24 hours)
+        reported_at = entry.get("reported_at", "")
+        if reported_at:
+            try:
+                reported_time = time.mktime(time.strptime(reported_at, "%Y-%m-%dT%H:%M:%SZ"))
+                age_hours = (now - reported_time) / 3600
+                if age_hours < 24:
+                    stats["still_pending"] += 1
+                    continue
+            except ValueError:
+                pass
+        
+        comment_id = entry.get("comment_id", "")
+        if not comment_id:
+            continue
+            
+        try:
+            clean_id = comment_id.replace("t1_", "")
+            comment = reddit.comment(clean_id)
+            _ = comment.body  # Force fetch
+            
+            if comment.body == "[removed]" or getattr(comment, 'removed', False):
+                entry["outcome"] = "removed"
+                stats["removed"] += 1
+            elif getattr(comment, 'removed_by_category', None):
+                entry["outcome"] = "removed"
+                stats["removed"] += 1
+            else:
+                # Comment still exists = approved/not actioned = false positive
+                entry["outcome"] = "approved"
+                stats["approved"] += 1
+                
+                # Track as false positive
+                track_false_positive(
+                    comment_id=comment_id,
+                    permalink=entry.get("permalink", ""),
+                    text=entry.get("text", ""),
+                    groq_reason=entry.get("groq_reason", ""),
+                    detoxify_score=entry.get("detoxify_score", 0),
+                    reported_at=reported_at
+                )
+                new_false_positives.append(entry)
+            
+            entry["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            stats["checked"] += 1
+            
+        except prawcore.exceptions.NotFound:
+            entry["outcome"] = "removed"
+            entry["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            stats["removed"] += 1
+            stats["checked"] += 1
+        except Exception as e:
+            logging.warning(f"Error checking comment {comment_id}: {e}")
+            stats["errors"] += 1
+    
+    save_tracked_comments(comments)
+    
+    # Notify Discord about new false positives
+    if webhook and new_false_positives:
+        for fp in new_false_positives[:5]:  # Limit to 5 notifications
+            post_discord_embed(
+                webhook=webhook,
+                title="⚠️ False Positive Detected",
+                description=f"```{fp.get('text', '')[:500]}```",
+                color=0xFFAA00,  # Orange
+                fields=[
+                    {"name": "Reason", "value": fp.get("groq_reason", "Unknown"), "inline": True},
+                    {"name": "Detoxify", "value": f"{fp.get('detoxify_score', 0):.2f}", "inline": True},
+                ],
+                url=fp.get("permalink", "")
+            )
+    
+    return stats
+
+
+# -------------------------------
+# Helper functions
+# -------------------------------
+
+def get_parent_context(thing) -> Tuple[str, str]:
+    """
+    Get parent context and post title for better analysis.
+    Returns (parent_context, post_title)
+    """
+    parent_context = ""
+    post_title = ""
+    
+    try:
+        # Get the submission (post) this comment is on
+        if hasattr(thing, 'submission'):
+            submission = thing.submission
+            post_title = getattr(submission, 'title', '') or ''
+        
+        # Get immediate parent context
+        if hasattr(thing, 'parent'):
+            parent = thing.parent()
+            if hasattr(parent, 'body'):
+                # Parent is a comment
+                parent_context = parent.body[:500]
+            elif hasattr(parent, 'title'):
+                # Parent is the submission itself
+                selftext = getattr(parent, 'selftext', '') or ""
+                if selftext:
+                    parent_context = selftext[:500]
+    except Exception:
+        pass
+    
+    return parent_context, post_title
+
+
+def get_text_from_thing(thing) -> Optional[str]:
+    """Extract text content from a comment or submission"""
+    # Comment
+    if hasattr(thing, 'body'):
+        body = thing.body
+        if body and body != '[deleted]' and body != '[removed]':
+            return body
+    # Submission
+    elif hasattr(thing, 'title'):
+        title = getattr(thing, 'title', '') or ''
+        selftext = getattr(thing, 'selftext', '') or ''
+        text = f"{title.strip()}  {selftext.strip()}".strip()
+        if text:
+            return text
+    return None
+
+
+# -------------------------------
+# Report
+# -------------------------------
+
+def file_report(thing, reason: str, cfg: Config) -> None:
+    try:
+        if cfg.report_as == "moderator":
+            if cfg.report_rule_bucket:
+                thing.mod.report(reason=reason, rule_name=cfg.report_rule_bucket)
+            else:
+                thing.mod.report(reason=reason)
+        else:
+            thing.report(reason)
+    except AttributeError:
+        thing.report(reason)
+
+
+def build_report_reason(result: AnalysisResult) -> str:
+    # Reddit report reasons have a ~100 char limit
+    # Truncate cleanly without cutting mid-word
+    reason = result.reason
+    if len(reason) <= 100:
+        return reason
+    
+    # Find the last space before the 97 char mark (leave room for "...")
+    truncated = reason[:97]
+    last_space = truncated.rfind(' ')
+    if last_space > 50:  # Only use space if it's not too far back
+        truncated = truncated[:last_space]
+    
+    return truncated + "..."
+
+
+# -------------------------------
+# Main loop
+# -------------------------------
+
+def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cfg: Config, subreddit_name: str) -> None:
+    """Process a single comment or submission"""
+    
+    text = get_text_from_thing(thing)
+    if not text:
+        return
+    
+    thing_id = thing.fullname
+    permalink = f"https://reddit.com{getattr(thing, 'permalink', '')}"
+    
+    # Get parent context and post title
+    parent_ctx, post_title = "", ""
+    if hasattr(thing, 'body'):  # It's a comment
+        parent_ctx, post_title = get_parent_context(thing)
+    
+    # Check if this is a top-level comment (parent is the submission, not another comment)
+    is_top_level = False
+    if hasattr(thing, 'parent_id'):
+        # parent_id starts with t3_ for submissions, t1_ for comments
+        is_top_level = thing.parent_id.startswith('t3_')
+    
+    # Pre-filter with Detoxify
+    should_analyze, detox_score, detox_scores = detox_filter.should_analyze(text, is_top_level=is_top_level)
+    
+    if not should_analyze:
+        # Below threshold - skip LLM analysis
+        # Log at INFO level if score was borderline (> 0.35) so we can review skips
+        if detox_score > 0.35:
+            logging.info(f"SKIP (borderline) | score={detox_score:.2f} | {permalink}")
+            logging.info(f"  Text: {text[:200].replace(chr(10), ' ')}{'...' if len(text) > 200 else ''}")
+            # Discord notification for borderline skips
+            if cfg.discord_webhook:
+                notify_discord_borderline_skip(
+                    webhook=cfg.discord_webhook,
+                    comment_text=text,
+                    permalink=permalink,
+                    detoxify_score=detox_score,
+                    subreddit=subreddit_name
+                )
+        else:
+            logging.debug(f"SKIP | detox={detox_score:.3f} | '{text[:80].replace(chr(10), ' ')}...'")
+        return
+    
+    # Above threshold - send to Groq
+    log_text_short = text[:100].replace('\n', ' ')
+    logging.info(f"")
+    logging.info(f"={'='*60}")
+    logging.info(f"SENDING TO GROQ (detox score: {detox_score:.3f})")
+    logging.info(f"Comment: \"{log_text_short}{'...' if len(text) > 100 else ''}\"")
+    logging.info(f"Link: {permalink}")
+    
+    # Discord notification for sending to LLM
+    if cfg.discord_webhook:
+        notify_discord_llm_analysis(
+            webhook=cfg.discord_webhook,
+            comment_text=text,
+            permalink=permalink,
+            detoxify_score=detox_score,
+            subreddit=subreddit_name
+        )
+    
+    result = analyzer.analyze(text, subreddit_name, parent_ctx, detox_score, is_top_level, post_title)
+    
+    # Show Groq's verdict and reasoning
+    logging.info(f"")
+    logging.info(f"GROQ VERDICT: {result.verdict.value}")
+    logging.info(f"GROQ REASONING: {result.reason}")
+    if result.raw_response:
+        logging.debug(f"GROQ RAW RESPONSE: {result.raw_response}")
+    
+    # Update Discord with verdict
+    if cfg.discord_webhook:
+        notify_discord_verdict(
+            webhook=cfg.discord_webhook,
+            verdict=result.verdict.value,
+            reason=result.reason,
+            permalink=permalink
+        )
+    
+    should_report = result.verdict == Verdict.REPORT
+    
+    if should_report:
+        if cfg.dry_run:
+            logging.info(f"ACTION: >>> WOULD REPORT <<< (dry run enabled)")
+        else:
+            logging.info(f"ACTION: >>> REPORTING <<<")
+    else:
+        logging.info(f"ACTION: No action needed (benign)")
+    
+    logging.info(f"={'='*60}")
+
+    # File report (only if not dry run)
+    if cfg.enable_reddit_reports and should_report:
+        reason = build_report_reason(result)
+        if cfg.dry_run:
+            # Already logged above
+            pass
+        else:
+            try:
+                file_report(thing, reason, cfg)
+                # Track the reported comment for accuracy measurement
+                track_reported_comment(
+                    comment_id=thing_id,
+                    permalink=permalink,
+                    text=text,
+                    groq_reason=result.reason,
+                    detoxify_score=detox_score
+                )
+                # Send Discord notification for report
+                notify_discord_report(
+                    webhook=cfg.discord_webhook,
+                    comment_text=text,
+                    permalink=permalink,
+                    reason=result.reason,
+                    detoxify_score=detox_score
+                )
+            except prawcore.exceptions.Forbidden as e:
+                logging.error(f"Forbidden when reporting {thing_id}: {e}")
+            except prawcore.exceptions.NotFound as e:
+                logging.error(f"Item not found {thing_id}: {e}")
+            except Exception as e:
+                logging.error(f"Report failed for {thing_id}: {e}")
+
+
+def stream_subreddit(reddit: praw.Reddit, subreddit_name: str, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cfg: Config) -> None:
+    """Stream comments and submissions from a subreddit"""
+    
+    sr = reddit.subreddit(subreddit_name)
+    logging.info(f"Starting stream for r/{subreddit_name}")
+    
+    # Stream comments (this blocks and yields comments as they arrive)
+    for comment in sr.stream.comments(skip_existing=True):
+        try:
+            process_thing(comment, detox_filter, analyzer, cfg, subreddit_name)
+        except Exception as e:
+            logging.error(f"Error processing {comment.fullname}: {e}")
             continue
 
-        # modest pacing so we don't melt
-        if cfg.interval_sec:
-            time.sleep(cfg.interval_sec / max(1, cfg.limit))
+
+# -------------------------------
+# Main
+# -------------------------------
+
+import threading
+
+def accuracy_check_loop(reddit: praw.Reddit, discord_webhook: str = None, 
+                        check_interval_hours: int = 12):
+    """Background thread that periodically checks reported comment outcomes"""
+    check_interval_sec = check_interval_hours * 3600
+    
+    while True:
+        time.sleep(check_interval_sec)
+        try:
+            logging.info("Running accuracy check on reported comments...")
+            
+            # Check outcomes and track false positives
+            stats = check_and_track_false_positives(reddit, webhook=discord_webhook)
+            
+            if stats["checked"] > 0:
+                logging.info(
+                    f"Accuracy check complete: {stats['checked']} comments checked - "
+                    f"{stats['removed']} removed, {stats['approved']} approved (false positives)"
+                )
+            
+            # Get overall stats
+            overall = get_accuracy_stats()
+            if overall["resolved"] > 0:
+                logging.info(
+                    f"Overall accuracy: {overall['accuracy_pct']:.1f}% "
+                    f"({overall['removed']}/{overall['resolved']} removed) | "
+                    f"{overall['pending']} still pending"
+                )
+            
+            # Cleanup old entries
+            cleanup_old_tracked(max_age_days=7)
+            
+        except Exception as e:
+            logging.error(f"Accuracy check failed: {e}")
 
 
-def main():
+def main() -> None:
     cfg = load_config()
-    setup_logging(cfg)
-    reddit = reddit_client(cfg)
+    setup_logging(cfg.log_level)
+    logging.info("Starting ToxicReportBot v2 (Detoxify + Groq LLM)")
 
-    # periodic modlog refresher in the background
-    stop_flag = threading.Event()
-    t = threading.Thread(target=refresh_modlog_async, args=(reddit, cfg, stop_flag), daemon=True)
-    t.start()
+    # Initialize smart pre-filter
+    detox_filter = SmartPreFilter(
+        model_name=cfg.detoxify_model
+    )
 
-    # post weekly summary if due (respects last_posted state)
-    try:
-        maybe_post_weekly_summary(cfg)
-    except Exception as e:
-        logging.warning("Summary step failed: %s", e)
+    # Reddit
+    reddit = praw_client(cfg)
 
-    # main scan loop
-    try:
-        scan_loop(reddit, cfg, stop_flag)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        stop_flag.set()
+    # LLM Analyzer
+    analyzer = LLMAnalyzer(
+        api_key=cfg.groq_api_key,
+        model=cfg.llm_model,
+        guidelines=cfg.moderation_guidelines,
+        fallback_model=cfg.llm_fallback_model or None,
+        daily_limit=cfg.llm_daily_limit,
+        requests_per_minute=cfg.llm_requests_per_minute
+    )
+    logging.info(f"Using LLM model: {cfg.llm_model} (max {cfg.llm_requests_per_minute} requests/min)")
+    if cfg.llm_fallback_model:
+        logging.info(f"Fallback model: {cfg.llm_fallback_model} (after {cfg.llm_daily_limit} calls/day)")
+    
+    # Discord setup
+    if cfg.discord_webhook:
+        logging.info(f"Discord notifications enabled (webhook configured)")
+        # Send startup notification
+        try:
+            success = post_discord_embed(
+                webhook=cfg.discord_webhook,
+                title="🤖 ToxicReportBot Started",
+                description=f"Monitoring r/{cfg.subreddits[0]}\nDry run: {cfg.dry_run}",
+                color=0x00FF00,  # Green
+                fields=[
+                    {"name": "LLM Model", "value": cfg.llm_model, "inline": True},
+                    {"name": "Detoxify Model", "value": cfg.detoxify_model, "inline": True},
+                ]
+            )
+            if success:
+                logging.info("Discord startup notification sent successfully")
+            else:
+                logging.warning("Discord startup notification failed - check webhook URL")
+        except Exception as e:
+            logging.error(f"Discord startup notification failed: {e}")
+    else:
+        logging.info("Discord notifications disabled (no webhook configured)")
+    
+    # Start accuracy check background thread
+    accuracy_thread = threading.Thread(
+        target=accuracy_check_loop, 
+        args=(reddit, cfg.discord_webhook, 12),  # Check every 12 hours
+        daemon=True
+    )
+    accuracy_thread.start()
+    logging.info("Started accuracy tracking (checks every 12 hours)")
+    
+    # Start daily stats thread
+    def daily_stats_loop(discord_webhook: str, detox_filter: DetoxifyFilter, 
+                         analyzer: LLMAnalyzer):
+        """Post daily stats to Discord"""
+        if not discord_webhook:
+            return
+        
+        # Wait until next day at 00:00 UTC, then post daily
+        while True:
+            # Calculate seconds until midnight UTC
+            now = time.gmtime()
+            seconds_until_midnight = (24 - now.tm_hour) * 3600 - now.tm_min * 60 - now.tm_sec
+            if seconds_until_midnight <= 0:
+                seconds_until_midnight += 86400
+            
+            time.sleep(seconds_until_midnight + 60)  # Wait until just after midnight
+            
+            try:
+                # Gather stats
+                accuracy = get_accuracy_stats()
+                
+                # Get filter stats (parse from string - not ideal but works)
+                filter_stats = detox_filter.get_stats()
+                
+                stats = {
+                    "total_processed": detox_filter.total,
+                    "sent_to_llm": detox_filter.must_escalate + detox_filter.detoxify_triggered,
+                    "reported": accuracy.get("removed", 0) + accuracy.get("pending", 0),
+                    "benign": detox_filter.benign_skipped + detox_filter.pattern_skipped,
+                    "accuracy": accuracy
+                }
+                
+                notify_discord_daily_stats(discord_webhook, stats)
+                logging.info("Posted daily stats to Discord")
+                
+            except Exception as e:
+                logging.error(f"Daily stats post failed: {e}")
+    
+    if cfg.discord_webhook:
+        stats_thread = threading.Thread(
+            target=daily_stats_loop,
+            args=(cfg.discord_webhook, detox_filter, analyzer),
+            daemon=True
+        )
+        stats_thread.start()
+        logging.info("Started daily Discord stats (posts at midnight UTC)")
+    
+    # For now, we only support a single subreddit with streaming
+    # Multiple subreddits would require threading or asyncio
+    if len(cfg.subreddits) > 1:
+        logging.warning("Streaming mode only supports one subreddit. Using first one.")
+    
+    subreddit_name = cfg.subreddits[0]
+    logging.info(f"Monitoring r/{subreddit_name} via comment stream")
+
+    while True:
+        try:
+            stream_subreddit(reddit, subreddit_name, detox_filter, analyzer, cfg)
+            
+        except prawcore.exceptions.ResponseException as e:
+            logging.error("ResponseException: %s", e)
+            logging.info(f"Stats - {detox_filter.get_stats()} | {analyzer.get_stats()}")
+            time.sleep(10)
+            try:
+                reddit = praw_client(cfg)
+            except Exception:
+                time.sleep(20)
+        except prawcore.exceptions.RequestException as e:
+            logging.error("RequestException: %s", e)
+            time.sleep(10)
+        except KeyboardInterrupt:
+            logging.info("Shutting down by user request.")
+            logging.info(f"Final stats - {detox_filter.get_stats()} | {analyzer.get_stats()}")
+            # Print final accuracy stats
+            overall = get_accuracy_stats()
+            if overall["resolved"] > 0:
+                logging.info(
+                    f"Final accuracy: {overall['accuracy_pct']:.1f}% "
+                    f"({overall['removed']}/{overall['resolved']} removed)"
+                )
+            break
+        except Exception as e:
+            logging.error("Stream error: %s\n%s", e, traceback.format_exc())
+            logging.info(f"Stats - {detox_filter.get_stats()} | {analyzer.get_stats()}")
+            time.sleep(5)
+            # Reconnect and continue
+            try:
+                reddit = praw_client(cfg)
+            except Exception:
+                time.sleep(20)
+
 
 if __name__ == "__main__":
     main()
