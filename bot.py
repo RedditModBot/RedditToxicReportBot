@@ -640,9 +640,10 @@ def contains_slur(text: str) -> bool:
     if words & SLUR_WORDS:
         return True
     
-    # Check multi-word slur phrases via substring
+    # Check multi-word slur phrases with word boundaries
     for phrase in SLUR_PHRASES:
-        if phrase in normalized:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
             return True
     
     return False
@@ -658,9 +659,12 @@ def contains_self_harm(text: str) -> bool:
     if 'godie' in squashed or 'drinkbleach' in squashed:
         return True
     
-    # Check phrases
+    # Check phrases with word boundaries to avoid false matches
+    # e.g., "end it" should not match "recommend it"
     for phrase in SELF_HARM_PHRASES:
-        if phrase in normalized:
+        # Use word boundaries for matching
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
             return True
     
     return False
@@ -669,7 +673,9 @@ def contains_threat(text: str) -> bool:
     """Check if text contains threats"""
     normalized = normalize_text(text)
     for phrase in THREAT_PHRASES:
-        if phrase in normalized:
+        # Use word boundaries to avoid false matches
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
             return True
     return False
 
@@ -677,7 +683,9 @@ def contains_sexual_violence(text: str) -> bool:
     """Check if text contains sexual violence threats"""
     normalized = normalize_text(text)
     for phrase in SEXUAL_VIOLENCE_PHRASES:
-        if phrase in normalized:
+        # Use word boundaries to avoid false matches
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
             return True
     return False
 
@@ -685,7 +693,8 @@ def contains_brigading(text: str) -> bool:
     """Check if text contains brigading/harassment calls"""
     normalized = normalize_text(text)
     for phrase in BRIGADING_PHRASES:
-        if phrase in normalized:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
             return True
     return False
 
@@ -693,7 +702,8 @@ def contains_shill_accusation(text: str) -> bool:
     """Check if text contains shill/bot accusations"""
     normalized = normalize_text(text)
     for phrase in SHILL_PHRASES:
-        if phrase in normalized:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
             return True
     return False
 
@@ -702,16 +712,10 @@ def contains_dismissive_hostile(text: str) -> bool:
     normalized = normalize_text(text)
     
     for phrase in DISMISSIVE_HOSTILE_PHRASES:
-        if ' ' in phrase:
-            # Multi-word phrase: substring match is fine
-            if phrase in normalized:
-                return True
-        else:
-            # Single word: use word boundary to avoid matching inside other words
-            # e.g., "cope" should not match "telescope"
-            pattern = r'\b' + re.escape(phrase) + r'\b'
-            if re.search(pattern, normalized):
-                return True
+        # Use word boundaries for all phrases to avoid false matches
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
+            return True
     return False
 
 def contains_violence_illegal(text: str) -> bool:
@@ -719,15 +723,10 @@ def contains_violence_illegal(text: str) -> bool:
     normalized = normalize_text(text)
     
     for phrase in VIOLENCE_ILLEGAL_PHRASES:
-        if ' ' in phrase:
-            # Multi-word phrase: substring match is fine
-            if phrase in normalized:
-                return True
-        else:
-            # Single word: use word boundary
-            pattern = r'\b' + re.escape(phrase) + r'\b'
-            if re.search(pattern, normalized):
-                return True
+        # Use word boundaries for all phrases to avoid false matches
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
+            return True
     return False
 
 def contains_direct_insult(text: str) -> bool:
@@ -742,9 +741,10 @@ def contains_direct_insult(text: str) -> bool:
     if words & INSULT_WORDS:
         return True
     
-    # Check insult phrases
+    # Check insult phrases with word boundaries
     for phrase in INSULT_PHRASES:
-        if phrase in normalized:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
             return True
     
     return False
@@ -761,9 +761,10 @@ def contains_contextual_term(text: str) -> bool:
     if words & CONTEXTUAL_WORDS:
         return True
     
-    # Check multi-word contextual phrases
+    # Check multi-word contextual phrases with word boundaries
     for phrase in CONTEXTUAL_PHRASES:
-        if phrase in normalized:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
             return True
     
     return False
