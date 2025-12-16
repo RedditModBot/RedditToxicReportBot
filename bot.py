@@ -1094,6 +1094,10 @@ class LLMAnalyzer:
         self.last_request_time = 0
         self.min_request_interval = 60.0 / requests_per_minute  # seconds between requests
         
+        # Model cooldowns - track when each model can be used again
+        # Key: model name, Value: timestamp when cooldown expires
+        self.model_cooldowns: Dict[str, float] = {}
+        
         # Total stats
         self.api_calls = 0
     
@@ -1195,24 +1199,22 @@ class LLMAnalyzer:
             self.api_calls += 1
             self.daily_calls += 1
             
-            # Models to try in order of quality (best first)
+            # Models to try in order of preference (fallbacks after primary)
             # Based on Groq free tier limits:
-            # - groq/compound: 250 RPD, uses multiple models internally (best quality)
-            # - llama-3.3-70b-versatile: 1K RPD, 100K TPD (great quality)
-            # - meta-llama/llama-4-scout-17b-16e-instruct: 1K RPD, 500K TPD (good quality)
-            # - llama-3.1-8b-instant: 14.4K RPD, 500K TPD (decent quality, highest limits)
-            quality_ordered_models = [
+            # - groq/compound: unlimited tokens, smart routing (recommended)
+            # - llama-3.3-70b-versatile: 100K tokens/day, excellent quality
+            # - meta-llama/llama-4-scout-17b-16e-instruct: 1K RPD, newer Llama 4 model
+            # - llama-3.1-8b-instant: 14.4K RPD (high limits, decent quality fallback)
+            fallback_models = [
                 "groq/compound",
                 "llama-3.3-70b-versatile",
                 "meta-llama/llama-4-scout-17b-16e-instruct",
                 "llama-3.1-8b-instant",
             ]
             
-            # Start with configured model, then fall through quality chain
-            models_to_try = []
-            if current_model not in quality_ordered_models:
-                models_to_try.append(current_model)
-            for m in quality_ordered_models:
+            # Start with configured model first, then fall through to fallbacks
+            models_to_try = [current_model]
+            for m in fallback_models:
                 if m not in models_to_try:
                     models_to_try.append(m)
             
@@ -1223,6 +1225,13 @@ class LLMAnalyzer:
             for model_idx, model_to_use in enumerate(models_to_try):
                 if success:
                     break
+                
+                # Check if model is on cooldown
+                cooldown_until = self.model_cooldowns.get(model_to_use, 0)
+                if time.time() < cooldown_until:
+                    remaining = int(cooldown_until - time.time())
+                    logging.info(f"Skipping {model_to_use} - on cooldown for {remaining}s more")
+                    continue
                     
                 # Retry logic for each model
                 max_retries = 2 if model_idx > 0 else 3  # Fewer retries for fallbacks
@@ -1243,6 +1252,9 @@ class LLMAnalyzer:
                         )
                         if model_to_use != models_to_try[0]:
                             logging.info(f"Successfully used fallback model: {model_to_use}")
+                        # Clear any cooldown on success
+                        if model_to_use in self.model_cooldowns:
+                            del self.model_cooldowns[model_to_use]
                         success = True
                         break  # Success - exit retry loop
                         
@@ -1254,13 +1266,15 @@ class LLMAnalyzer:
                             suggested_wait = self._parse_retry_time(error_str)
                             
                             # If wait time is short (< 30s), wait and retry same model
-                            # If wait time is long, skip to next model immediately
+                            # If wait time is long, set cooldown and skip to next model
                             if suggested_wait and suggested_wait <= 30 and attempt < max_retries - 1:
                                 logging.warning(f"Rate limited on {model_to_use}, waiting {suggested_wait:.0f}s (from API) before retry {attempt + 2}/{max_retries}")
                                 time.sleep(suggested_wait)
                                 continue
                             elif suggested_wait and suggested_wait > 30:
-                                logging.warning(f"Rate limited on {model_to_use} for {suggested_wait:.0f}s - too long, trying next model...")
+                                # Set cooldown so we don't try this model again until it expires
+                                self.model_cooldowns[model_to_use] = time.time() + suggested_wait
+                                logging.warning(f"Rate limited on {model_to_use} for {suggested_wait:.0f}s - cooldown set, trying next model...")
                                 break  # Exit retry loop, try next model
                             elif attempt < max_retries - 1:
                                 wait_time = retry_delay * (attempt + 1)
@@ -1268,8 +1282,9 @@ class LLMAnalyzer:
                                 time.sleep(wait_time)
                                 continue
                             else:
-                                # Out of retries for this model, try next model
-                                logging.warning(f"Rate limit exhausted for {model_to_use}, trying next model...")
+                                # Out of retries for this model, set a short cooldown
+                                self.model_cooldowns[model_to_use] = time.time() + 60  # 1 minute cooldown
+                                logging.warning(f"Rate limit exhausted for {model_to_use}, 60s cooldown set, trying next model...")
                                 break  # Exit retry loop, try next model
                         else:
                             # Non-rate-limit error - log and try next model
