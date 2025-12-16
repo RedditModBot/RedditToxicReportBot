@@ -77,7 +77,7 @@ If matches AND not directed at a user → skip entirely (saves API calls).
 
 **Step 3: Detoxify ML Scoring**
 
-Local ML model scores comment 0.0 to 1.0:
+Local ML model scores comment 0.0 to 1.0. Default thresholds (configurable in `.env`):
 
 | Label | Directed at User | Not Directed |
 |-------|------------------|--------------|
@@ -88,7 +88,7 @@ Local ML model scores comment 0.0 to 1.0:
 | toxicity | 0.40 | 0.50 |
 | obscene | 0.90 | 0.90 |
 
-"Directed" = contains "you", "your", "OP", or is a reply.
+"Directed" = contains "you", "your", "OP", or is a reply. See **Detection Thresholds** section for tuning.
 
 **Step 4: AI Review**
 
@@ -323,7 +323,34 @@ Get a **free** API key at https://console.groq.com/
 |----------|---------|-------------|
 | `DETOXIFY_MODEL` | `original` | `original` (stricter) or `unbiased` (looser) |
 
-Note: The actual thresholds are configured in `bot.py`, not the `.env` file.
+### Detection Thresholds
+
+Thresholds control how sensitive the pre-filter is. Scores range from 0.0 to 1.0. If ANY score exceeds its threshold, the comment gets sent to the AI.
+
+- **Lower threshold** = More sensitive (catches more, but more API calls)
+- **Higher threshold** = Less sensitive (fewer API calls, might miss some)
+
+| Variable | Default | What it catches |
+|----------|---------|-----------------|
+| `THRESHOLD_THREAT` | `0.15` | Threats of violence/harm |
+| `THRESHOLD_SEVERE_TOXICITY` | `0.20` | Extreme toxic content |
+| `THRESHOLD_IDENTITY_ATTACK` | `0.25` | Slurs, hate speech |
+| `THRESHOLD_INSULT_DIRECTED` | `0.40` | Insults aimed at users ("you're an idiot") |
+| `THRESHOLD_INSULT_NOT_DIRECTED` | `0.60` | General insults not at a user |
+| `THRESHOLD_TOXICITY_DIRECTED` | `0.40` | Toxic comments at users |
+| `THRESHOLD_TOXICITY_NOT_DIRECTED` | `0.50` | General toxic comments |
+| `THRESHOLD_OBSCENE` | `0.90` | Profanity (keep high - swearing isn't always toxic) |
+| `THRESHOLD_BORDERLINE` | `0.35` | Threshold for "borderline skip" Discord alerts |
+
+**When to adjust:**
+
+| Problem | Solution |
+|---------|----------|
+| Missing real toxicity | Lower the relevant threshold |
+| Too many API calls | Raise thresholds |
+| False positives in `false_positives.json` | Raise `TOXICITY_*` or `INSULT_*` |
+| Missing threats/slurs | Lower `THREAT` or `IDENTITY_ATTACK` |
+| Profanity-heavy subreddit getting flagged | Raise `OBSCENE` to 0.95 |
 
 ### Reporting
 
@@ -458,12 +485,103 @@ A good target is **80%+ accuracy**. Below 60% means too many false positives.
 
 ---
 
-## Running as a Service
+## Deploying on Ubuntu Server
 
-For production, run as a systemd service:
+The bot runs great on free cloud instances. It uses minimal resources (~200MB RAM) and can run 24/7 for free.
+
+### Free Cloud Options
+
+| Provider | Free Tier | Specs | Link |
+|----------|-----------|-------|------|
+| **Oracle Cloud** | Forever free | 1 CPU, 1GB RAM, 50GB disk | [cloud.oracle.com](https://cloud.oracle.com) |
+| **Google Cloud** | Free e2-micro | 0.25 CPU, 1GB RAM | [cloud.google.com](https://cloud.google.com) |
+| **AWS** | 12 months free | t2.micro, 1GB RAM | [aws.amazon.com](https://aws.amazon.com) |
+
+Oracle Cloud's "Always Free" tier is recommended - it never expires and has plenty of resources.
+
+### Step-by-Step Ubuntu Setup
+
+#### 1. Create your cloud instance
+
+- Choose **Ubuntu 22.04 or 24.04 LTS** (minimal/server image)
+- Open port 22 (SSH) in your security rules
+- Save your SSH key
+
+#### 2. Connect via SSH
+
+```bash
+ssh ubuntu@YOUR_SERVER_IP
+```
+
+#### 3. Install system dependencies
+
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Python and pip
+sudo apt install -y python3 python3-pip python3-venv git
+```
+
+#### 4. Clone and setup the bot
+
+```bash
+# Clone the repo
+git clone https://github.com/RedditModBot/RedditToxicReportBot.git
+cd RedditToxicReportBot
+
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies (this takes a few minutes on micro instances)
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+#### 5. Configure the bot
+
+```bash
+# Create your config file
+cp env.template .env
+
+# Edit with your credentials
+nano .env
+```
+
+Fill in your Reddit credentials, Groq API key, and Discord webhook (optional).
+
+#### 6. Create moderation guidelines
+
+```bash
+# Copy the template
+cp moderation_guidelines_template.txt moderation_guidelines.txt
+
+# Customize for your subreddit
+nano moderation_guidelines.txt
+```
+
+#### 7. Test the bot
+
+```bash
+# Make sure DRY_RUN=true in .env first!
+source .venv/bin/activate
+python bot.py
+```
+
+Watch the logs. If it connects and starts scanning comments, you're good.
+
+#### 8. Set up as a system service
+
+Create the service file:
+
+```bash
+sudo nano /etc/systemd/system/toxicreportbot.service
+```
+
+Paste this:
 
 ```ini
-# /etc/systemd/system/toxicreportbot.service
 [Unit]
 Description=ToxicReportBot
 After=network.target
@@ -471,9 +589,9 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/toxic-report-bot
-Environment=PATH=/home/ubuntu/toxic-report-bot/.venv/bin
-ExecStart=/home/ubuntu/toxic-report-bot/.venv/bin/python bot.py
+WorkingDirectory=/home/ubuntu/RedditToxicReportBot
+Environment=PATH=/home/ubuntu/RedditToxicReportBot/.venv/bin
+ExecStart=/home/ubuntu/RedditToxicReportBot/.venv/bin/python bot.py
 Restart=always
 RestartSec=10
 
@@ -481,11 +599,64 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
+Enable and start:
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable toxicreportbot
 sudo systemctl start toxicreportbot
-sudo journalctl -u toxicreportbot -f  # View logs
+```
+
+#### 9. Go live
+
+Once testing looks good:
+
+```bash
+# Edit .env and set DRY_RUN=false
+nano .env
+
+# Restart the service
+sudo systemctl restart toxicreportbot
+```
+
+### Useful Commands
+
+```bash
+# View live logs
+sudo journalctl -u toxicreportbot -f
+
+# Check status
+sudo systemctl status toxicreportbot
+
+# Restart after config changes
+sudo systemctl restart toxicreportbot
+
+# Stop the bot
+sudo systemctl stop toxicreportbot
+
+# View recent logs
+sudo journalctl -u toxicreportbot --since "1 hour ago"
+```
+
+### Updating the Bot
+
+```bash
+cd ~/RedditToxicReportBot
+git pull
+sudo systemctl restart toxicreportbot
+```
+
+### Memory Considerations
+
+On 1GB RAM instances, the first startup takes ~60 seconds while Detoxify loads its ML model. After that, it uses ~200-300MB steadily. If you run into memory issues:
+
+```bash
+# Add swap space (one-time setup)
+sudo fallocate -l 1G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
 ---
@@ -566,10 +737,10 @@ Edit `moderation_patterns.json` to add/remove:
 
 ## License
 
-MIT License - Don't be a menice.
+MIT License - Don't be a menice
 
 ## Credits
 
 - [Detoxify](https://github.com/unitaryai/detoxify) for local toxicity scoring
-- [Groq](https://groq.com) LLM
+- [Groq](https://groq.com) LLM 
 - [PRAW](https://praw.readthedocs.io) Reddit API
