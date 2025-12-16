@@ -231,8 +231,18 @@ class Config:
     llm_requests_per_minute: int  # Max requests per minute to Groq
     
     # Detoxify pre-filter
-    detoxify_threshold: float  # Score above this gets sent to LLM
     detoxify_model: str        # "original" or "unbiased"
+    
+    # Detoxify thresholds per label
+    threshold_threat: float
+    threshold_severe_toxicity: float
+    threshold_identity_attack: float
+    threshold_insult_directed: float
+    threshold_insult_not_directed: float
+    threshold_toxicity_directed: float
+    threshold_toxicity_not_directed: float
+    threshold_obscene: float
+    threshold_borderline: float  # Score above this logs as borderline skip
     
     # Custom moderation guidelines (loaded from file or env)
     moderation_guidelines: str
@@ -298,8 +308,18 @@ def load_config() -> Config:
         llm_daily_limit=int(os.getenv("LLM_DAILY_LIMIT", "240")),
         llm_requests_per_minute=int(os.getenv("LLM_REQUESTS_PER_MINUTE", "2")),
         
-        detoxify_threshold=float(os.getenv("DETOXIFY_THRESHOLD", "0.3")),
         detoxify_model=os.getenv("DETOXIFY_MODEL", "original"),
+        
+        # Per-label thresholds (lower = more sensitive)
+        threshold_threat=float(os.getenv("THRESHOLD_THREAT", "0.15")),
+        threshold_severe_toxicity=float(os.getenv("THRESHOLD_SEVERE_TOXICITY", "0.20")),
+        threshold_identity_attack=float(os.getenv("THRESHOLD_IDENTITY_ATTACK", "0.25")),
+        threshold_insult_directed=float(os.getenv("THRESHOLD_INSULT_DIRECTED", "0.40")),
+        threshold_insult_not_directed=float(os.getenv("THRESHOLD_INSULT_NOT_DIRECTED", "0.60")),
+        threshold_toxicity_directed=float(os.getenv("THRESHOLD_TOXICITY_DIRECTED", "0.40")),
+        threshold_toxicity_not_directed=float(os.getenv("THRESHOLD_TOXICITY_NOT_DIRECTED", "0.50")),
+        threshold_obscene=float(os.getenv("THRESHOLD_OBSCENE", "0.90")),
+        threshold_borderline=float(os.getenv("THRESHOLD_BORDERLINE", "0.35")),
         
         moderation_guidelines=guidelines,
         
@@ -815,14 +835,15 @@ class SmartPreFilter:
     4. Considers directedness for borderline cases
     """
     
-    def __init__(self, model_name: str = "original"):
+    def __init__(self, config: Config):
+        self.config = config
         self.model = None
         self.available = False
         
         try:
             from detoxify import Detoxify
-            logging.info(f"Loading Detoxify model '{model_name}'...")
-            self.model = Detoxify(model_name)
+            logging.info(f"Loading Detoxify model '{config.detoxify_model}'...")
+            self.model = Detoxify(config.detoxify_model)
             self.available = True
             logging.info(f"Detoxify model loaded successfully")
         except ImportError:
@@ -836,6 +857,13 @@ class SmartPreFilter:
                      f"{len(SELF_HARM_PHRASES)} self-harm, {len(THREAT_PHRASES)} threats, "
                      f"{len(INSULT_WORDS)} insult words, {len(INSULT_PHRASES)} insult phrases, "
                      f"{len(MUST_ESCALATE_RE)} regex patterns")
+        
+        # Log thresholds
+        logging.info(f"Thresholds: threat={config.threshold_threat}, severe_toxicity={config.threshold_severe_toxicity}, "
+                     f"identity_attack={config.threshold_identity_attack}, "
+                     f"insult={config.threshold_insult_directed}/{config.threshold_insult_not_directed} (dir/not), "
+                     f"toxicity={config.threshold_toxicity_directed}/{config.threshold_toxicity_not_directed} (dir/not), "
+                     f"obscene={config.threshold_obscene}, borderline={config.threshold_borderline}")
         
         # Stats
         self.total = 0
@@ -976,15 +1004,14 @@ class SmartPreFilter:
                 logging.info(f"PREFILTER | SEND (contextual term + {reason}) | '{text_preview}...'")
                 return True, max(0.7, identity_attack_score), scores
             
-            # Thresholds per label (lower = more sensitive)
-            # Lowered thresholds to catch more edge cases - within API limits
+            # Thresholds per label from config (lower = more sensitive)
             thresholds = {
-                'threat': 0.15,           # Was 0.25
-                'severe_toxicity': 0.20,  # Was 0.30
-                'identity_attack': 0.25,  # Was 0.35
-                'insult': 0.40 if is_directed else 0.60,  # Was 0.55/0.75
-                'toxicity': 0.40 if is_directed else 0.50, # Was 0.60/0.80
-                'obscene': 0.90,  # Still mostly ignore
+                'threat': self.config.threshold_threat,
+                'severe_toxicity': self.config.threshold_severe_toxicity,
+                'identity_attack': self.config.threshold_identity_attack,
+                'insult': self.config.threshold_insult_directed if is_directed else self.config.threshold_insult_not_directed,
+                'toxicity': self.config.threshold_toxicity_directed if is_directed else self.config.threshold_toxicity_not_directed,
+                'obscene': self.config.threshold_obscene,
             }
             
             triggered_labels = []
@@ -1805,8 +1832,8 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
     
     if not should_analyze:
         # Below threshold - skip LLM analysis
-        # Log at INFO level if score was borderline (> 0.35) so we can review skips
-        if detox_score > 0.35:
+        # Log at INFO level if score was borderline so we can review skips
+        if detox_score > cfg.threshold_borderline:
             logging.info(f"SKIP (borderline) | score={detox_score:.2f} | {permalink}")
             logging.info(f"  Text: {text[:200].replace(chr(10), ' ')}{'...' if len(text) > 200 else ''}")
             # Discord notification for borderline skips
@@ -1965,9 +1992,7 @@ def main() -> None:
     logging.info("Starting ToxicReportBot v2 (Detoxify + Groq LLM)")
 
     # Initialize smart pre-filter
-    detox_filter = SmartPreFilter(
-        model_name=cfg.detoxify_model
-    )
+    detox_filter = SmartPreFilter(config=cfg)
 
     # Reddit
     reddit = praw_client(cfg)
