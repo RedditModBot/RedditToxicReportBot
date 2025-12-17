@@ -100,11 +100,17 @@ Sends to Groq LLM with full context:
 
 AI returns: `VERDICT: REPORT` or `VERDICT: BENIGN` with a reason.
 
-**Model Fallback Chain** (if rate limited):
-1. `groq/compound` (best quality)
-2. `llama-3.3-70b-versatile`
-3. `llama-4-scout-17b`
-4. `llama-3.1-8b-instant`
+**Model Fallback Chain** (configurable via `LLM_FALLBACK_CHAIN` in `.env`):
+
+Default chain tries models in order until one succeeds:
+1. `groq/compound` - Smart routing, unlimited tokens (recommended primary)
+2. `llama-3.3-70b-versatile` - Best quality, 100K tokens/day
+3. `meta-llama/llama-4-maverick-17b-128e-instruct` - Good quality, 500K tokens/day
+4. `meta-llama/llama-4-scout-17b-16e-instruct` - Good quality, 500K tokens/day  
+5. `meta-llama/llama-guard-4-12b` - Content moderation specific, 500K tokens/day
+6. `llama-3.1-8b-instant` - Fast, highest limits (last resort)
+
+**Smart Cooldown System**: When rate limited, the bot remembers which models are unavailable and skips them automatically. Cooldowns include a 60-second buffer to ensure rate limits fully reset.
 
 ---
 
@@ -305,17 +311,33 @@ Get a **free** API key at https://console.groq.com/
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GROQ_API_KEY` | (required) | Your Groq API key (starts with `gsk_`) |
-| `LLM_MODEL` | `groq/compound` | Primary model (see options below) |
-| `LLM_FALLBACK_MODEL` | `llama-3.3-70b-versatile` | Backup when rate limited |
-| `LLM_DAILY_LIMIT` | `240` | Switch to fallback after this many calls |
+| `LLM_MODEL` | `groq/compound` | Primary model to try first |
+| `LLM_FALLBACK_CHAIN` | (see below) | Comma-separated list of fallback models |
 | `LLM_REQUESTS_PER_MINUTE` | `2` | Rate limit (1 request per 30 sec) |
+| `LLM_DAILY_LIMIT` | `14000` | Legacy setting (less relevant with fallback chain) |
 
-**Model options (all free):**
-| Model | Quality | Daily Limit | Best For |
-|-------|---------|-------------|----------|
-| `groq/compound` | Best | 250 | Default choice |
-| `llama-3.3-70b-versatile` | Great | 1,000 | High volume fallback |
-| `llama-3.1-8b-instant` | Good | 14,400 | Very high volume |
+**Default fallback chain:**
+```
+LLM_FALLBACK_CHAIN=llama-3.3-70b-versatile,meta-llama/llama-4-maverick-17b-128e-instruct,meta-llama/llama-4-scout-17b-16e-instruct,meta-llama/llama-guard-4-12b,llama-3.1-8b-instant
+```
+
+**Available models (all free on Groq):**
+
+| Model | Quality | Tokens/Day | Requests/Day | Best For |
+|-------|---------|------------|--------------|----------|
+| `groq/compound` | Great | Unlimited | 250 | **Recommended primary** |
+| `llama-3.3-70b-versatile` | Excellent | 100K | 1K | Highest quality |
+| `meta-llama/llama-4-maverick-17b-128e-instruct` | Good | 500K | 1K | Good balance |
+| `meta-llama/llama-4-scout-17b-16e-instruct` | Good | 500K | 1K | Good balance |
+| `meta-llama/llama-guard-4-12b` | Good | 500K | 14.4K | Content moderation |
+| `llama-3.1-8b-instant` | Decent | 500K | 14.4K | Last resort |
+
+**How fallback works:**
+1. Bot tries your `LLM_MODEL` first
+2. If rate limited, it sets a cooldown (API wait time + 60s buffer)
+3. Tries next model in `LLM_FALLBACK_CHAIN`
+4. Skips models on cooldown automatically
+5. Cooldowns clear when time expires
 
 ### Pre-filter Configuration
 
@@ -719,9 +741,17 @@ Edit `moderation_patterns.json` to add/remove:
 - Check bot has mod permissions in the subreddit
 
 ### Rate limited constantly
-- Lower `LLM_REQUESTS_PER_MINUTE`
-- Check Groq dashboard for usage
-- Fallback models should kick in automatically
+- Check Groq dashboard for usage: https://console.groq.com/settings/organization/usage
+- The fallback chain should handle this automatically
+- If ALL models are exhausted, add more models to `LLM_FALLBACK_CHAIN`
+- Lower `LLM_REQUESTS_PER_MINUTE` to `1` for slower but safer operation
+- Look for "Skipping [model] - on cooldown" in logs to see what's happening
+
+### Falling back to llama-3.1-8b-instant too often
+This means better models are rate limited. Solutions:
+- Wait - daily limits reset at midnight UTC
+- Add more mid-tier models to your fallback chain
+- The bot tracks cooldowns, so it won't keep hammering rate-limited models
 
 ### Discord notifications not working
 - Check webhook URL is correct
@@ -729,18 +759,22 @@ Edit `moderation_patterns.json` to add/remove:
 - Test webhook with curl
 
 ### High false positive rate
-- Review `false_positives.json`
-- Adjust thresholds in `bot.py`
-- Update `moderation_guidelines.txt`
+- Review `false_positives.json` to see patterns
+- Update `moderation_guidelines.txt` with more examples
+- Add common benign phrases to `benign_skip` in `moderation_patterns.json`
+- Raise thresholds in `.env` (e.g., `THRESHOLD_INSULT_DIRECTED=0.50`)
+
+### Reddit 502/504 errors
+These are Reddit API hiccups - the bot handles them automatically with retries. If you see them constantly for several minutes, Reddit may be having issues.
 
 ---
 
 ## License
 
-MIT License - Don't be a menice
+MIT License - feel free to use and modify.
 
 ## Credits
 
 - [Detoxify](https://github.com/unitaryai/detoxify) for local toxicity scoring
-- [Groq](https://groq.com) LLM 
-- [PRAW](https://praw.readthedocs.io) Reddit API
+- [Groq](https://groq.com) free (for now) LLM API - With limits
+- [PRAW](https://praw.readthedocs.io) for Reddit API access
