@@ -318,19 +318,22 @@ Get a **free** API key at https://console.groq.com/
 
 **Default fallback chain:**
 ```
-LLM_FALLBACK_CHAIN=llama-3.3-70b-versatile,meta-llama/llama-4-maverick-17b-128e-instruct,meta-llama/llama-4-scout-17b-16e-instruct,meta-llama/llama-guard-4-12b,llama-3.1-8b-instant
+LLM_FALLBACK_CHAIN=llama-3.3-70b-versatile,meta-llama/llama-4-scout-17b-16e-instruct,meta-llama/llama-4-maverick-17b-128e-instruct,llama-3.1-8b-instant
 ```
 
 **Available models (all free on Groq):**
 
-| Model | Quality | Tokens/Day | Requests/Day | Best For |
-|-------|---------|------------|--------------|----------|
-| `groq/compound` | Great | Unlimited | 250 | **Recommended primary** |
-| `llama-3.3-70b-versatile` | Excellent | 100K | 1K | Highest quality |
-| `meta-llama/llama-4-maverick-17b-128e-instruct` | Good | 500K | 1K | Good balance |
-| `meta-llama/llama-4-scout-17b-16e-instruct` | Good | 500K | 1K | Good balance |
-| `meta-llama/llama-guard-4-12b` | Good | 500K | 14.4K | Content moderation |
-| `llama-3.1-8b-instant` | Decent | 500K | 14.4K | Last resort |
+| Model | Quality | Requests/Day | Tokens/Day | Best For |
+|-------|---------|--------------|------------|----------|
+| `groq/compound` | Great | 250 | Unlimited | **Recommended primary** |
+| `llama-3.3-70b-versatile` | Excellent | 1K | 100K | Highest quality |
+| `meta-llama/llama-4-scout-17b-16e-instruct` | Good | 1K | 500K | Good balance |
+| `meta-llama/llama-4-maverick-17b-128e-instruct` | Good | 1K | 500K | Good balance |
+| `llama-3.1-8b-instant` | Decent | 14.4K | 500K | Last resort |
+
+**Not recommended:** 
+- `llama-guard-4-12b` - Classifier model, returns "safe/unsafe" instead of following instructions
+- `qwen/qwen3-32b` - Outputs `<think>` tags, doesn't follow instructions cleanly
 
 **How fallback works:**
 1. Bot tries your `LLM_MODEL` first
@@ -776,5 +779,5 @@ MIT License - feel free to use and modify.
 ## Credits
 
 - [Detoxify](https://github.com/unitaryai/detoxify) for local toxicity scoring
-- [Groq](https://groq.com) free (for now) LLM API - With limits
+- [Groq](https://groq.com) for fast, free LLM inference
 - [PRAW](https://praw.readthedocs.io) for Reddit API access
