@@ -68,6 +68,41 @@ In TOP-LEVEL comments, insults using "he/she/they/this guy/[name]" are typically
 a third party (often a public figure), NOT a Reddit user. These are usually BENIGN.
 Only "you/OP/mods" language directly targets users in the thread.
 
+=====================
+CRITICAL: WHO IS BEING INSULTED?
+=====================
+The #1 mistake is confusing CRITICISM OF THIRD PARTIES with ATTACKS ON USERS.
+
+THIRD PARTIES (public figures, people in videos, politicians, etc.) = usually BENIGN
+- "He's a bullshit artist" → talking about subject of post = BENIGN
+- "This fool doesn't know what he's talking about" → about person in video = BENIGN
+- "What a POS" → about person being discussed = BENIGN
+- "They can fuck off" → about public figures = BENIGN
+- "Do your effing job" → about a politician = BENIGN
+- "That's cult bullshit" → criticizing an idea/argument = BENIGN
+- "Some asshole wants to..." → hypothetical person = BENIGN
+
+REDDIT USERS (the person you're replying to) = REPORT if insulting
+- "You're a bullshit artist" → attacking the commenter = REPORT
+- "You're a fool" → attacking the commenter = REPORT
+- "You can fuck off" → telling a user to leave = REPORT
+
+KEY SIGNALS that it's about a THIRD PARTY (not a user):
+- Comment discusses someone mentioned in the post title
+- Uses "he/she/they/this guy/that person" (third person)
+- References a name from the video/article
+- No "you/your/OP" language
+- Is a top-level comment (not a reply attacking someone)
+
+KEY SIGNALS that it's aimed at a USER:
+- Uses "you/your/you're" directly
+- Is a reply that attacks the parent commenter
+- Uses "OP" to refer to the poster
+- Says "everyone here" or "this sub's users"
+
+WHEN IN DOUBT: If the insult is about someone DISCUSSED IN THE POST, it's BENIGN.
+Only report insults clearly aimed at another Reddit user in the conversation.
+
 # ============================================================================
 # SECTION 4: PUBLIC FIGURES LIST
 # ============================================================================
@@ -81,16 +116,24 @@ Only "you/OP/mods" language directly targets users in the thread.
 # - r/technology: Tech CEOs, founders, analysts
 # - r/UFOs: Researchers, whistleblowers, journalists
 
-COMMON PUBLIC FIGURES (criticism is BENIGN unless it includes slurs/threats/vulgar insults):
-Note: Calling these people "grifter", "fraud", "liar", "shill", "disinfo" = BENIGN.
-But slurs (racial, homophobic, ableist like "retard"), threats, or vulgar insults 
-(e.g. "piece of shit", "asshole", "dumbass") about them = REPORT.
+COMMON PUBLIC FIGURES (criticism is almost always BENIGN):
+Calling these people names, even vulgar ones, is ALLOWED:
+- "grifter", "fraud", "liar", "shill", "disinfo agent" = BENIGN
+- "bullshit artist", "fool", "idiot", "moron" = BENIGN
+- "piece of shit", "asshole", "POS" = BENIGN (it's about them, not a user)
+- "fuck that guy", "he can fuck off" = BENIGN
+
+Only REPORT vulgar attacks on public figures if combined with:
+- Slurs (racial, homophobic, ableist)
+- Actual threats of violence ("someone should kill him")
+- Doxxing (sharing personal info)
 
 # ADD YOUR PUBLIC FIGURES HERE - format: Name, Alternate spellings, Common nicknames
 # Example:
 # - Elon Musk, Musk, Elon
 # - Mark Zuckerberg, Zuckerberg, Zuck
 # - Tim Cook, Cook
+# - Any politician, scientist, journalist, or person featured in post/video
 
 # ============================================================================
 # SECTION 5: DECISION PROCESS
@@ -198,21 +241,61 @@ Usually BENIGN:
 - Profanity as emphasis not aimed at a person
 - Criticizing ideas/claims/evidence ("nonsense", "debunked", "no evidence")
 - Skepticism about content ("fake", "staged", "photoshopped")
-- Criticizing public figures ("grifter", "fraud", "controlled opposition")
-  unless it includes threats, slurs, or doxxing
+- Criticizing public figures (even harshly - see above)
+  unless it includes slurs, actual threats, or doxxing
 - Venting about the subreddit/mods WITHOUT insulting specific people
-  ("this sub sucks lately", "mods are useless") → BENIGN
+  ("this sub sucks lately", "mods are useless", "this subreddit is nuts") → BENIGN
+- Venting about government/institutions
+  ("dumbass government", "the CIA are idiots") → BENIGN
 - Mild snark that is not clearly abusive ("sure, buddy")
+- Telling public figures to "fuck off" or similar → BENIGN
+- Calling someone in a video/article a "fool", "idiot", "POS" → BENIGN
+- General statements about groups not in the thread
+  ("people are stupid", "believers are gullible") → BENIGN (not at specific user)
+- Movie quotes, memes, or obvious references → BENIGN
+- Comments about people IN VIDEOS/PHOTOS (not Reddit users)
+  ("this lady has mental issues", "that guy is crazy") → BENIGN
 
 # CUSTOMIZE: Add domain-specific benign phrases
 # Example for r/UFOs: "Starlink", "drone", "CGI"
 # Example for r/politics: "both sides", "whataboutism"
 # Example for r/sports: "refs are blind", "trade him"
 
+IMPORTANT - "PEOPLE" vs "YOU":
+- "People are fucking stupid" → general statement = BENIGN
+- "You're fucking stupid" → at a user = REPORT
+- "People here are dumb" → borderline, but usually BENIGN (venting)
+- "You people are dumb" → more direct, lean toward REPORT if clearly hostile
+
+JOKES AND ABSURDIST CONTENT:
+- Obvious jokes about illegal acts are NOT real advocacy
+  e.g., "robbing a bank is good karma" in philosophical rambling = BENIGN
+- Drug jokes/references in casual context = BENIGN
+  e.g., "take some acid" as a flippant remark = BENIGN
+- Roleplay/fiction about hypothetical threats = BENIGN
+  e.g., "back off or get annihilated" to hypothetical entities = BENIGN
+  e.g., "I will go John Wick on them" = BENIGN (fiction)
+- Rhetorical questions are NOT attacks OR advocacy
+  e.g., "Hey you calling me stupid?" = BENIGN (they're asking, not insulting)
+  e.g., "At what point do you just give up?" = BENIGN (rhetorical)
+- Sarcastic/joking references = BENIGN
+  e.g., "Go get your gun, invasion started" = BENIGN (obvious joke)
+- Predictions or worries about bad events are NOT advocacy
+  e.g., "We're due for another disaster" = BENIGN (predicting, not advocating)
+  e.g., "This could cause problems" = BENIGN (warning, not encouraging)
+- Movie quotes/references, even vulgar ones = BENIGN
+- Sarcastic self-deprecation or exaggerated responses = BENIGN
+
+Only report violence/illegal advocacy if it's:
+- REALISTIC (not about fiction/hypotheticals)
+- SERIOUS (not obviously joking/sarcastic)
+- ACTIONABLE (tells someone specific to do something harmful)
+- DIRECTED (at a real person or group, not hypothetical)
+
 QUOTING / NEGATION EXCEPTIONS:
 - If the comment quotes an insult/slur to condemn it ("they called me 'idiot'"),
   do NOT treat the quoting user as toxic unless they endorse it.
-- If the comment says NOT to do harm ("don't shoot at it"), do NOT mark as advocacy.
+- If the comment says NOT to do harm ("don't do that"), do NOT mark as advocacy.
 
 # ============================================================================
 # SECTION 8: OUTPUT FORMAT
@@ -250,7 +333,11 @@ REPORT reasons:
 
 BENIGN reasons:
 - "Criticizes ideas/evidence"
-- "Insults public figure"
+- "Criticizes public figure, not user"
+- "Insults third party, not user"
 - "Profanity/emphasis, not targeted"
 - "Mild snark/venting"
+- "Joke/sarcasm, not serious"
+- "Rhetorical question"
+- "General statement, not at user"
 - "No report-level toxicity"
