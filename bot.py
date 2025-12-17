@@ -305,7 +305,7 @@ def load_config() -> Config:
         groq_api_key=os.environ["GROQ_API_KEY"],
         llm_model=os.getenv("LLM_MODEL", "groq/compound"),
         llm_fallback_chain=[s.strip() for s in os.getenv("LLM_FALLBACK_CHAIN", 
-            "llama-3.3-70b-versatile,meta-llama/llama-4-maverick-17b-128e-instruct,meta-llama/llama-4-scout-17b-16e-instruct,meta-llama/llama-guard-4-12b,llama-3.1-8b-instant"
+            "llama-3.3-70b-versatile,meta-llama/llama-4-scout-17b-16e-instruct,meta-llama/llama-4-maverick-17b-128e-instruct,llama-3.1-8b-instant"
         ).split(",") if s.strip()],
         llm_daily_limit=int(os.getenv("LLM_DAILY_LIMIT", "240")),
         llm_requests_per_minute=int(os.getenv("LLM_REQUESTS_PER_MINUTE", "2")),
@@ -1156,6 +1156,49 @@ class LLMAnalyzer:
         
         return total_seconds if total_seconds > 0 else None
     
+    def _check_rate_limit_headers(self, model: str, headers) -> None:
+        """
+        Check rate limit headers from Groq response and preemptively set cooldowns.
+        
+        Headers available:
+        - x-ratelimit-remaining-requests: RPD remaining
+        - x-ratelimit-remaining-tokens: TPM remaining  
+        - x-ratelimit-reset-requests: When RPD resets (e.g., "2m59.56s")
+        - x-ratelimit-reset-tokens: When TPM resets (e.g., "7.66s")
+        """
+        try:
+            if not headers:
+                return
+            
+            remaining_requests = headers.get('x-ratelimit-remaining-requests')
+            remaining_tokens = headers.get('x-ratelimit-remaining-tokens')
+            reset_requests = headers.get('x-ratelimit-reset-requests')
+            
+            # Log remaining quota at debug level
+            if remaining_requests:
+                logging.debug(f"{model} - Remaining requests (RPD): {remaining_requests}")
+            if remaining_tokens:
+                logging.debug(f"{model} - Remaining tokens (TPM): {remaining_tokens}")
+            
+            # Preemptively set cooldown if running low on requests
+            if remaining_requests:
+                try:
+                    remaining = int(remaining_requests)
+                    if remaining <= 5:
+                        # Running very low - set a cooldown
+                        reset_time = self._parse_retry_time(reset_requests) if reset_requests else 300
+                        cooldown_time = max(reset_time + 60, 120) if reset_time else 300
+                        self.model_cooldowns[model] = time.time() + cooldown_time
+                        logging.warning(f"⚠️ {model} running low ({remaining} requests left) - {cooldown_time:.0f}s cooldown set")
+                    elif remaining <= 20:
+                        logging.info(f"📊 {model} has {remaining} requests remaining today")
+                except (ValueError, TypeError):
+                    pass
+                    
+        except Exception as e:
+            # Don't fail on header parsing errors
+            logging.debug(f"Could not parse rate limit headers: {e}")
+    
     def analyze(self, text: str, subreddit: str, parent_context: str = "", 
                 detoxify_score: float = 0.0, is_top_level: bool = False, 
                 post_title: str = "") -> AnalysisResult:
@@ -1229,7 +1272,8 @@ class LLMAnalyzer:
                 
                 for attempt in range(max_retries):
                     try:
-                        response = self.client.chat.completions.create(
+                        # Use with_raw_response to get rate limit headers
+                        raw_response = self.client.chat.completions.with_raw_response.create(
                             model=model_to_use,
                             messages=[
                                 {"role": "system", "content": system_prompt},
@@ -1238,11 +1282,17 @@ class LLMAnalyzer:
                             max_tokens=100,
                             temperature=0.1,  # Low temp for consistent classification
                         )
+                        response = raw_response.parse()
+                        
                         if model_to_use != models_to_try[0]:
                             logging.info(f"Successfully used fallback model: {model_to_use}")
                         # Clear any cooldown on success
                         if model_to_use in self.model_cooldowns:
                             del self.model_cooldowns[model_to_use]
+                        
+                        # Check rate limit headers from response
+                        self._check_rate_limit_headers(model_to_use, raw_response.headers)
+                        
                         success = True
                         break  # Success - exit retry loop
                         
@@ -1250,6 +1300,9 @@ class LLMAnalyzer:
                         error_str = str(e)
                         last_error = e
                         if "429" in error_str or "rate_limit" in error_str.lower():
+                            # Log full error for debugging (might contain underlying model info)
+                            logging.debug(f"Full rate limit error: {error_str}")
+                            
                             # Parse wait time from error message like "Please try again in 5m20.3712s"
                             suggested_wait = self._parse_retry_time(error_str)
                             
