@@ -1090,7 +1090,6 @@ class LLMAnalyzer:
         # Track daily usage
         self.daily_calls = 0
         self.last_reset_date = time.strftime("%Y-%m-%d")
-        self.using_fallback = False
         
         # Rate limiting - track last request time
         self.last_request_time = 0
@@ -1116,7 +1115,7 @@ class LLMAnalyzer:
         self.last_request_time = time.time()
     
     def _get_current_model(self) -> str:
-        """Get the model to use, checking if we need to switch to fallback"""
+        """Get the model to use - always returns primary, fallback handled in analyze()"""
         today = time.strftime("%Y-%m-%d")
         
         # Reset counter if it's a new day
@@ -1124,14 +1123,8 @@ class LLMAnalyzer:
             logging.info(f"New day detected - resetting daily counter (was {self.daily_calls})")
             self.daily_calls = 0
             self.last_reset_date = today
-            self.using_fallback = False
-        
-        # Check if we need to switch to fallback
-        if self.fallback_model and self.daily_calls >= self.daily_limit:
-            if not self.using_fallback:
-                logging.warning(f"Daily limit ({self.daily_limit}) reached for {self.primary_model}, switching to fallback: {self.fallback_model}")
-                self.using_fallback = True
-            return self.fallback_model
+            # Clear all cooldowns on new day
+            self.model_cooldowns.clear()
         
         return self.primary_model
     
@@ -1210,6 +1203,7 @@ class LLMAnalyzer:
             last_error = None
             response = None
             success = False
+            fallback_delay = 30  # seconds to wait between fallback models
             
             for model_idx, model_to_use in enumerate(models_to_try):
                 if success:
@@ -1221,6 +1215,11 @@ class LLMAnalyzer:
                     remaining = int(cooldown_until - time.time())
                     logging.info(f"Skipping {model_to_use} - on cooldown for {remaining}s more")
                     continue
+                
+                # Wait before trying fallback models (not for the first model)
+                if model_idx > 0:
+                    logging.info(f"Waiting {fallback_delay}s before trying fallback model...")
+                    time.sleep(fallback_delay)
                     
                 # Retry logic for each model
                 max_retries = 2 if model_idx > 0 else 3  # Fewer retries for fallbacks
