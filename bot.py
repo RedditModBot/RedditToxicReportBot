@@ -1316,23 +1316,55 @@ class LLMAnalyzer:
                         error_str = str(e)
                         last_error = e
                         if "429" in error_str or "rate_limit" in error_str.lower():
-                            # Log full error for debugging (might contain underlying model info)
+                            # Log full error for debugging
                             logging.debug(f"Full rate limit error: {error_str}")
                             
-                            # Parse wait time from error message like "Please try again in 5m20.3712s"
-                            suggested_wait = self._parse_retry_time(error_str)
+                            # Check if daily limit is fully exhausted (Used == Limit)
+                            daily_exhausted = False
+                            import re
+                            rpd_match = re.search(r'Limit (\d+), Used (\d+)', error_str)
+                            if rpd_match:
+                                limit = int(rpd_match.group(1))
+                                used = int(rpd_match.group(2))
+                                if used >= limit:
+                                    daily_exhausted = True
+                                    logging.warning(f"⚠️ {model_to_use} daily limit EXHAUSTED ({used}/{limit} RPD)")
                             
+                            # Try to get retry-after from exception response headers first
+                            suggested_wait = None
+                            if hasattr(e, 'response') and hasattr(e.response, 'headers'):
+                                retry_after = e.response.headers.get('retry-after')
+                                if retry_after:
+                                    try:
+                                        suggested_wait = float(retry_after)
+                                        logging.debug(f"Got retry-after header: {suggested_wait}s")
+                                    except (ValueError, TypeError):
+                                        pass
+                            
+                            # Fall back to parsing error message
+                            if not suggested_wait:
+                                suggested_wait = self._parse_retry_time(error_str)
+                                if suggested_wait:
+                                    logging.debug(f"Parsed wait time from message: {suggested_wait:.0f}s")
+                            
+                            if not suggested_wait:
+                                logging.debug(f"Could not parse wait time from error")
+                            
+                            # If daily limit exhausted, set 1 hour cooldown regardless of retry-after
+                            if daily_exhausted:
+                                cooldown_time = 3600  # 1 hour
+                                self.model_cooldowns[model_to_use] = time.time() + cooldown_time
+                                logging.warning(f"Rate limited on {model_to_use} - daily limit exhausted, 1h cooldown set, trying next model...")
+                                break  # Exit retry loop, try next model
                             # If wait time is short (< 30s), wait and retry same model
-                            # If wait time is long, set cooldown and skip to next model
-                            # Minimum cooldown of 120s to let per-minute limits reset
-                            # Add 60s buffer to API suggested times to be safe
-                            if suggested_wait and suggested_wait <= 30 and attempt < max_retries - 1:
+                            elif suggested_wait and suggested_wait <= 30 and attempt < max_retries - 1:
                                 logging.warning(f"Rate limited on {model_to_use}, waiting {suggested_wait:.0f}s (from API) before retry {attempt + 2}/{max_retries}")
                                 time.sleep(suggested_wait)
                                 continue
                             elif suggested_wait and suggested_wait > 30:
                                 # Set cooldown - minimum 120s, plus 60s buffer on top of API time
-                                cooldown_time = max(suggested_wait + 60, 120)
+                                # Cap at 1 hour - if longer, we'll just retry and get a fresh wait time
+                                cooldown_time = min(max(suggested_wait + 60, 120), 3600)
                                 self.model_cooldowns[model_to_use] = time.time() + cooldown_time
                                 logging.warning(f"Rate limited on {model_to_use} for {suggested_wait:.0f}s - {cooldown_time:.0f}s cooldown set, trying next model...")
                                 break  # Exit retry loop, try next model
@@ -1342,9 +1374,10 @@ class LLMAnalyzer:
                                 time.sleep(wait_time)
                                 continue
                             else:
-                                # Out of retries for this model, set minimum cooldown
-                                self.model_cooldowns[model_to_use] = time.time() + 120  # 2 minute cooldown
-                                logging.warning(f"Rate limit exhausted for {model_to_use}, 120s cooldown set, trying next model...")
+                                # Out of retries for this model, set longer cooldown (10 min)
+                                # since we couldn't parse the wait time
+                                self.model_cooldowns[model_to_use] = time.time() + 600
+                                logging.warning(f"Rate limit exhausted for {model_to_use}, 10m cooldown set, trying next model...")
                                 break  # Exit retry loop, try next model
                         else:
                             # Non-rate-limit error - log and try next model
