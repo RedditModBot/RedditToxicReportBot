@@ -226,7 +226,7 @@ class Config:
     # LLM
     groq_api_key: str
     llm_model: str
-    llm_fallback_model: str     # Fallback when daily limit reached
+    llm_fallback_chain: List[str]  # Fallback models in order of preference
     llm_daily_limit: int        # Switch to fallback after this many calls
     llm_requests_per_minute: int  # Max requests per minute to Groq
     
@@ -303,8 +303,10 @@ def load_config() -> Config:
         subreddits=[s.strip() for s in subs.split(",") if s.strip()],
         
         groq_api_key=os.environ["GROQ_API_KEY"],
-        llm_model=os.getenv("LLM_MODEL", "llama-3.1-8b-instant"),
-        llm_fallback_model=os.getenv("LLM_FALLBACK_MODEL", ""),
+        llm_model=os.getenv("LLM_MODEL", "groq/compound"),
+        llm_fallback_chain=[s.strip() for s in os.getenv("LLM_FALLBACK_CHAIN", 
+            "llama-3.3-70b-versatile,meta-llama/llama-4-maverick-17b-128e-instruct,meta-llama/llama-4-scout-17b-16e-instruct,meta-llama/llama-guard-4-12b,llama-3.1-8b-instant"
+        ).split(",") if s.strip()],
         llm_daily_limit=int(os.getenv("LLM_DAILY_LIMIT", "240")),
         llm_requests_per_minute=int(os.getenv("LLM_REQUESTS_PER_MINUTE", "2")),
         
@@ -1076,11 +1078,11 @@ class LLMAnalyzer:
     """Uses Groq (free tier) to analyze comments for toxicity with context understanding"""
     
     def __init__(self, api_key: str, model: str, guidelines: str, 
-                 fallback_model: str = None, daily_limit: int = 240,
+                 fallback_chain: List[str] = None, daily_limit: int = 240,
                  requests_per_minute: int = 2):
         self.client = Groq(api_key=api_key)
         self.primary_model = model
-        self.fallback_model = fallback_model
+        self.fallback_chain = fallback_chain or []
         self.daily_limit = daily_limit
         self.guidelines = guidelines
         self.requests_per_minute = requests_per_minute
@@ -1199,22 +1201,9 @@ class LLMAnalyzer:
             self.api_calls += 1
             self.daily_calls += 1
             
-            # Models to try in order of preference (fallbacks after primary)
-            # Based on Groq free tier limits:
-            # - groq/compound: unlimited tokens, smart routing (recommended)
-            # - llama-3.3-70b-versatile: 100K tokens/day, excellent quality
-            # - meta-llama/llama-4-scout-17b-16e-instruct: 1K RPD, newer Llama 4 model
-            # - llama-3.1-8b-instant: 14.4K RPD (high limits, decent quality fallback)
-            fallback_models = [
-                "groq/compound",
-                "llama-3.3-70b-versatile",
-                "meta-llama/llama-4-scout-17b-16e-instruct",
-                "llama-3.1-8b-instant",
-            ]
-            
-            # Start with configured model first, then fall through to fallbacks
+            # Start with configured model first, then fall through to fallback chain
             models_to_try = [current_model]
-            for m in fallback_models:
+            for m in self.fallback_chain:
                 if m not in models_to_try:
                     models_to_try.append(m)
             
@@ -1369,8 +1358,9 @@ class LLMAnalyzer:
             )
     
     def get_stats(self) -> str:
-        model_status = f"using fallback ({self.fallback_model})" if self.using_fallback else f"using primary ({self.primary_model})"
-        return f"LLM API calls: {self.api_calls} (today: {self.daily_calls}/{self.daily_limit}, {model_status})"
+        cooldowns = [m for m, t in self.model_cooldowns.items() if time.time() < t]
+        cooldown_str = f", {len(cooldowns)} models on cooldown" if cooldowns else ""
+        return f"LLM API calls: {self.api_calls} (today: {self.daily_calls}, primary: {self.primary_model}{cooldown_str})"
 
 
 # -------------------------------
@@ -2020,13 +2010,12 @@ def main() -> None:
         api_key=cfg.groq_api_key,
         model=cfg.llm_model,
         guidelines=cfg.moderation_guidelines,
-        fallback_model=cfg.llm_fallback_model or None,
+        fallback_chain=cfg.llm_fallback_chain,
         daily_limit=cfg.llm_daily_limit,
         requests_per_minute=cfg.llm_requests_per_minute
     )
     logging.info(f"Using LLM model: {cfg.llm_model} (max {cfg.llm_requests_per_minute} requests/min)")
-    if cfg.llm_fallback_model:
-        logging.info(f"Fallback model: {cfg.llm_fallback_model} (after {cfg.llm_daily_limit} calls/day)")
+    logging.info(f"Fallback chain: {' -> '.join(cfg.llm_fallback_chain)}")
     
     # Discord setup
     if cfg.discord_webhook:
