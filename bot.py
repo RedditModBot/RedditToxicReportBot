@@ -1128,23 +1128,35 @@ class LLMAnalyzer:
         
         return self.primary_model
     
-    def _parse_retry_time(self, error_str: str) -> float:
+    def _parse_retry_time(self, time_str: str) -> float:
         """
-        Parse retry wait time from Groq error messages.
-        Examples: "Please try again in 5m20.3712s", "try again in 30s", "try again in 2m5s"
+        Parse retry wait time from Groq error messages or headers.
+        Examples: "24h0m0s", "5m20.3712s", "try again in 30s", "2m5s", "220ms"
         Returns seconds as float, or None if not parseable.
         """
+        if not time_str:
+            return None
+            
         import re
         
-        # Look for pattern like "try again in Xm Ys" or "try again in Xs"
-        match = re.search(r'try again in (\d+m)?(\d+(?:\.\d+)?s)?', error_str.lower())
+        time_str_lower = time_str.lower()
+        
+        # Try to find time pattern anywhere in string (handles "try again in X" format)
+        # Pattern handles: 24h0m0s, 5m20s, 30s, 220ms
+        match = re.search(r'(\d+h)?(\d+m(?!s))?(\d+(?:\.\d+)?s)?(\d+ms)?', time_str_lower)
         if not match:
             return None
         
         total_seconds = 0.0
         
-        minutes_part = match.group(1)
-        seconds_part = match.group(2)
+        hours_part = match.group(1)
+        minutes_part = match.group(2)
+        seconds_part = match.group(3)
+        ms_part = match.group(4)
+        
+        if hours_part:
+            hours = float(hours_part.rstrip('h'))
+            total_seconds += hours * 3600
         
         if minutes_part:
             minutes = float(minutes_part.rstrip('m'))
@@ -1153,6 +1165,10 @@ class LLMAnalyzer:
         if seconds_part:
             seconds = float(seconds_part.rstrip('s'))
             total_seconds += seconds
+            
+        if ms_part:
+            ms = float(ms_part.rstrip('ms'))
+            total_seconds += ms / 1000
         
         return total_seconds if total_seconds > 0 else None
     
@@ -1163,8 +1179,8 @@ class LLMAnalyzer:
         Headers available:
         - x-ratelimit-remaining-requests: RPD remaining
         - x-ratelimit-remaining-tokens: TPM remaining  
-        - x-ratelimit-reset-requests: When RPD resets (e.g., "2m59.56s")
-        - x-ratelimit-reset-tokens: When TPM resets (e.g., "7.66s")
+        - x-ratelimit-reset-requests: When RPD resets (could be rolling window)
+        - x-ratelimit-reset-tokens: When TPM resets
         """
         try:
             if not headers:
@@ -1176,7 +1192,7 @@ class LLMAnalyzer:
             
             # Log remaining quota at debug level
             if remaining_requests:
-                logging.debug(f"{model} - Remaining requests (RPD): {remaining_requests}")
+                logging.debug(f"{model} - Remaining requests (RPD): {remaining_requests}, resets in: {reset_requests}")
             if remaining_tokens:
                 logging.debug(f"{model} - Remaining tokens (TPM): {remaining_tokens}")
             
@@ -1185,13 +1201,13 @@ class LLMAnalyzer:
                 try:
                     remaining = int(remaining_requests)
                     if remaining <= 5:
-                        # Running very low - set a cooldown
-                        reset_time = self._parse_retry_time(reset_requests) if reset_requests else 300
-                        cooldown_time = max(reset_time + 60, 120) if reset_time else 300
+                        # Running very low - set moderate cooldown (10 min)
+                        # Don't use full reset time since limits may be rolling
+                        cooldown_time = 600  # 10 minutes
                         self.model_cooldowns[model] = time.time() + cooldown_time
-                        logging.warning(f"⚠️ {model} running low ({remaining} requests left) - {cooldown_time:.0f}s cooldown set")
+                        logging.warning(f"⚠️ {model} nearly exhausted ({remaining} requests left) - 10m cooldown, will retry")
                     elif remaining <= 20:
-                        logging.info(f"📊 {model} has {remaining} requests remaining today")
+                        logging.info(f"📊 {model} has {remaining} requests remaining")
                 except (ValueError, TypeError):
                     pass
                     
