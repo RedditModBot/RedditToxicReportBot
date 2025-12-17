@@ -1267,14 +1267,17 @@ class LLMAnalyzer:
                             
                             # If wait time is short (< 30s), wait and retry same model
                             # If wait time is long, set cooldown and skip to next model
+                            # Minimum cooldown of 120s to let per-minute limits reset
+                            # Add 60s buffer to API suggested times to be safe
                             if suggested_wait and suggested_wait <= 30 and attempt < max_retries - 1:
                                 logging.warning(f"Rate limited on {model_to_use}, waiting {suggested_wait:.0f}s (from API) before retry {attempt + 2}/{max_retries}")
                                 time.sleep(suggested_wait)
                                 continue
                             elif suggested_wait and suggested_wait > 30:
-                                # Set cooldown so we don't try this model again until it expires
-                                self.model_cooldowns[model_to_use] = time.time() + suggested_wait
-                                logging.warning(f"Rate limited on {model_to_use} for {suggested_wait:.0f}s - cooldown set, trying next model...")
+                                # Set cooldown - minimum 120s, plus 60s buffer on top of API time
+                                cooldown_time = max(suggested_wait + 60, 120)
+                                self.model_cooldowns[model_to_use] = time.time() + cooldown_time
+                                logging.warning(f"Rate limited on {model_to_use} for {suggested_wait:.0f}s - {cooldown_time:.0f}s cooldown set, trying next model...")
                                 break  # Exit retry loop, try next model
                             elif attempt < max_retries - 1:
                                 wait_time = retry_delay * (attempt + 1)
@@ -1282,9 +1285,9 @@ class LLMAnalyzer:
                                 time.sleep(wait_time)
                                 continue
                             else:
-                                # Out of retries for this model, set a short cooldown
-                                self.model_cooldowns[model_to_use] = time.time() + 60  # 1 minute cooldown
-                                logging.warning(f"Rate limit exhausted for {model_to_use}, 60s cooldown set, trying next model...")
+                                # Out of retries for this model, set minimum cooldown
+                                self.model_cooldowns[model_to_use] = time.time() + 120  # 2 minute cooldown
+                                logging.warning(f"Rate limit exhausted for {model_to_use}, 120s cooldown set, trying next model...")
                                 break  # Exit retry loop, try next model
                         else:
                             # Non-rate-limit error - log and try next model
