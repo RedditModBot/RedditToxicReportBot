@@ -228,6 +228,26 @@ IMPORTANT - "PEOPLE" vs "YOU":
 - "People here are dumb" → borderline, but usually BENIGN (venting)
 - "You people are dumb" → more direct, lean toward REPORT if clearly hostile
 
+QUOTED INSULTS (in quotation marks):
+- If an insult appears in quotation marks, it's likely a quote or reference
+  e.g., "You carny piece of shit!" (quoting a movie/show) = BENIGN
+- Look for context clues like "crossover", "reference", "reminds me of"
+
+MILD CRITICISM OF ARGUMENTS:
+- "Your argument is pedestrian" → criticizing the argument = BENIGN
+- "That's a lazy take" → criticizing the opinion = BENIGN
+- "Ignorant take" → borderline, lean BENIGN unless combined with direct attack
+
+CRITICISM OF PUBLIC FIGURES' EXPERTISE:
+- Questioning someone's credentials or expertise is BENIGN
+  e.g., "Wtf does a 70 year old know about X?" = BENIGN (criticizing expertise)
+  e.g., "He's not qualified to speak on this" = BENIGN
+- Only REPORT if combined with slurs or threats
+
+SARCASM AND SELF-DEPRECATING HUMOR:
+- "/sniffs own farts/" → sarcastic self-mockery = BENIGN
+- "I'm a refined movie watcher, you wouldn't understand" → obvious sarcasm = BENIGN
+
 JOKES AND ABSURDIST CONTENT:
 - Obvious jokes about illegal acts are NOT real advocacy
   e.g., "robbing a bank is good karma" in philosophical rambling = BENIGN
@@ -255,6 +275,11 @@ Only report violence/illegal advocacy if it's:
 - ACTIONABLE (tells someone specific to do something harmful)
 - DIRECTED (at a real person or group, not hypothetical)
 
+IMPORTANT - POLITICIANS AND ELECTED OFFICIALS:
+- Calling politicians "scum bag", "liar", "corrupt", "piece of shit" = BENIGN
+- This includes any elected official, government employee, or public servant
+- Only REPORT if combined with actual threats or doxxing
+
 QUOTING / NEGATION EXCEPTIONS:
 - If the comment quotes an insult/slur to condemn it ("they called me 'idiot'"),
   do NOT treat the quoting user as toxic unless they endorse it.
@@ -278,7 +303,7 @@ REASON RULES:
 - Do NOT mention rules, policies, or subreddit names.
 - Do NOT hedge ("maybe", "possibly").
 
-Examples of REASON phrasings:
+Preferred REASON phrasings (pick the closest):
 REPORT reasons:
 - "Direct insult at user"
 - "Mental health insult at user"
