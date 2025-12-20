@@ -228,6 +228,30 @@ IMPORTANT - "PEOPLE" vs "YOU":
 - "People here are dumb" → borderline, but usually BENIGN (venting)
 - "You people are dumb" → more direct, lean toward REPORT if clearly hostile
 
+CALLING CLAIMS/QUESTIONS "BULLSHIT":
+- "That's bullshit" about a claim or argument = BENIGN (criticizing the idea)
+- "This is a bullshit question" = BENIGN (criticizing the question)
+- "That's bullshit, you don't die from that" = BENIGN (disagreeing with claim)
+- Only REPORT if "you ARE bullshit" or similar direct attack on person
+
+DISCUSSING DANGER/THREATS IN CONTEXT:
+- Explaining why whistleblowers face danger = BENIGN
+  e.g., "they can kill him too" (explaining risk) = BENIGN
+  e.g., "that's how people end up dead" (warning) = BENIGN
+- This is discussion ABOUT threats, not MAKING threats
+- Only REPORT if directing threat AT a user: "I will kill you"
+
+ANALOGIES AND METAPHORS:
+- Using animals/characters to make a point about humans = BENIGN
+  e.g., "one pig to another: you are crazy!" (analogy) = BENIGN
+- "Tinfoil hat" references = usually BENIGN (common expression)
+- Self-deprecating use of "tinfoil hat" = definitely BENIGN
+
+FAMOUS MOVIE/MEME QUOTES:
+- Billy Madison: "What you've just said is one of the most insanely idiotic things..." = BENIGN
+- Any well-known movie quote, even if insulting = BENIGN
+- Look for: quotation marks, formatting, or "famous quote" patterns
+
 QUOTED INSULTS (in quotation marks):
 - If an insult appears in quotation marks, it's likely a quote or reference
   e.g., "You carny piece of shit!" (quoting a movie/show) = BENIGN
@@ -244,6 +268,13 @@ CRITICISM OF PUBLIC FIGURES' EXPERTISE:
   e.g., "He's not qualified to speak on this" = BENIGN
 - Only REPORT if combined with slurs or threats
 
+MEDIA PERSONALITIES AND PODCASTERS:
+- Calling podcasters/YouTubers "snake oil salesman", "grifter", "con man" = BENIGN
+  e.g., "Joe Rogan is a braindead snake oil salesman" = BENIGN
+  e.g., "Greer is a scammer and con man" = BENIGN
+- Criticizing people who follow them = borderline but usually BENIGN
+  e.g., "people who fall for his shit" = BENIGN (frustration with believers)
+
 SARCASM AND SELF-DEPRECATING HUMOR:
 - "/sniffs own farts/" → sarcastic self-mockery = BENIGN
 - "I'm a refined movie watcher, you wouldn't understand" → obvious sarcasm = BENIGN
@@ -253,6 +284,7 @@ JOKES AND ABSURDIST CONTENT:
   e.g., "robbing a bank is good karma" in philosophical rambling = BENIGN
 - Drug jokes/references in casual context = BENIGN
   e.g., "take some acid" as a flippant remark = BENIGN
+  e.g., "I smoke weed/crack" (personal admission) = BENIGN (not advocating to others)
 - Roleplay/fiction about aliens, threats to aliens, etc. = BENIGN
   e.g., "back off or get annihilated" to hypothetical aliens = BENIGN
   e.g., "I will go John Wick on the aliens" = BENIGN (fiction)
@@ -268,6 +300,14 @@ JOKES AND ABSURDIST CONTENT:
   e.g., "THAT MOTHERFUCKER IS NOT REAL" (movie reference) = BENIGN
 - Sarcastic self-deprecation or exaggerated responses = BENIGN
   e.g., "My mouth thirsts for thine cock" (sarcastic) = BENIGN
+
+BORDERLINE CASES - LEAN BENIGN:
+- "You're making yourself look foolish" → mild criticism = BENIGN
+- "Think for yourself" → condescending but not toxic = BENIGN
+- "Good luck with your insolence" → dismissive but not attack = BENIGN
+- "Do you smoke weed?" → rude question but not attack = BENIGN
+- "You're one of them!" → vague, could be joking = BENIGN
+- "shutup" → rude but low-severity = BENIGN (unless part of larger attack)
 
 Only report violence/illegal advocacy if it's:
 - REALISTIC (not about aliens/fiction)
