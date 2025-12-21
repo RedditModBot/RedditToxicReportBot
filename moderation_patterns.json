@@ -146,6 +146,7 @@
     "trans_context": ["ladyboy", "he/she", "he-she"],
     "disability_context": ["spaz", "spastic", "special needs", "short bus"],
     "religion_mocking": ["sky fairy", "sky daddy"],
+    "ufo_ambiguous": ["fake", "fakes"],
     
     "extremism_references": [
       "neo nazi", "neonazi", "white power", "whitepower", "swastika",
@@ -339,7 +340,7 @@
       "incel", "incels", "neckbeard", "neckbeards", "basement dweller",
       "simp", "simps", "cuck", "cucks", "soyboy", "soyboys",
       "bootlicker", "bootlickers", "grifter", "grifters", "shill", "shills",
-      "phony", "phonies", "fraud", "frauds", "fake", "fakes",
+      "phony", "phonies", "fraud", "frauds",
       "coward", "cowards",
       "parasite", "parasites", "leech", "leeches", "vermin", "maggot", "maggots", "cockroach", "cockroaches"
     ],
