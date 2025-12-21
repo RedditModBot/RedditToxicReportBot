@@ -13,6 +13,7 @@ import json
 import time
 import logging
 import traceback
+import uuid
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
@@ -48,6 +49,8 @@ class Verdict(Enum):
 # -------------------------------
 
 TRACKING_FILE = "reported_comments.json"
+BENIGN_TRACKING_FILE = "benign_analyzed.json"
+BENIGN_TRACKING_MAX_AGE_HOURS = 48  # Auto-cleanup entries older than this
 
 def load_tracked_comments() -> List[Dict]:
     """Load tracked comments from JSON file"""
@@ -64,6 +67,59 @@ def save_tracked_comments(comments: List[Dict]) -> None:
     """Save tracked comments to JSON file"""
     with open(TRACKING_FILE, "w", encoding="utf-8") as f:
         json.dump(comments, f, indent=2)
+
+def load_benign_analyzed() -> List[Dict]:
+    """Load benign analyzed comments from JSON file"""
+    try:
+        with open(BENIGN_TRACKING_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError:
+        logging.warning(f"Could not parse {BENIGN_TRACKING_FILE}, starting fresh")
+        return []
+
+def save_benign_analyzed(comments: List[Dict]) -> None:
+    """Save benign analyzed comments to JSON file"""
+    with open(BENIGN_TRACKING_FILE, "w", encoding="utf-8") as f:
+        json.dump(comments, f, indent=2)
+
+def track_benign_analyzed(comment_id: str, permalink: str, text: str,
+                          llm_reason: str, detoxify_score: float,
+                          detoxify_scores: Dict[str, float],
+                          is_top_level: bool = False,
+                          prefilter_trigger: str = "") -> None:
+    """
+    Track comments that were sent to LLM but came back BENIGN.
+    Auto-cleans entries older than BENIGN_TRACKING_MAX_AGE_HOURS.
+    """
+    comments = load_benign_analyzed()
+    now = time.time()
+    cutoff = now - (BENIGN_TRACKING_MAX_AGE_HOURS * 3600)
+    
+    # Clean old entries
+    comments = [c for c in comments if c.get("timestamp", 0) > cutoff]
+    
+    # Don't add duplicates
+    if any(c.get("comment_id") == comment_id for c in comments):
+        save_benign_analyzed(comments)  # Still save to persist cleanup
+        return
+    
+    comments.append({
+        "comment_id": comment_id,
+        "permalink": permalink,
+        "text": text[:500],
+        "llm_reason": llm_reason,
+        "detoxify_score": detoxify_score,
+        "detoxify_scores": detoxify_scores,
+        "is_top_level": is_top_level,
+        "prefilter_trigger": prefilter_trigger,
+        "analyzed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "timestamp": now
+    })
+    
+    save_benign_analyzed(comments)
+    logging.debug(f"Tracking benign analyzed comment: {comment_id}")
 
 def track_reported_comment(comment_id: str, permalink: str, text: str, 
                            groq_reason: str, detoxify_score: float,
@@ -1097,6 +1153,11 @@ class LLMAnalyzer:
             self.xai_client = OpenAI(api_key=xai_api_key, base_url="https://api.x.ai/v1")
             logging.info("x.ai Grok API configured")
         
+        # Generate a fixed conversation ID for x.ai cache persistence
+        # This increases likelihood of cache hits across requests
+        self.xai_conv_id = str(uuid.uuid4())
+        logging.debug(f"x.ai conversation ID for caching: {self.xai_conv_id}")
+        
         self.primary_model = model
         self.fallback_chain = fallback_chain or []
         self.daily_limit = daily_limit
@@ -1323,7 +1384,8 @@ class LLMAnalyzer:
                 for attempt in range(max_retries):
                     try:
                         if is_xai:
-                            # x.ai API (OpenAI-compatible) - simpler, no raw_response
+                            # x.ai API (OpenAI-compatible)
+                            # Use conv_id header to improve prompt caching across requests
                             response = self.xai_client.chat.completions.create(
                                 model=model_to_use,
                                 messages=[
@@ -1332,6 +1394,7 @@ class LLMAnalyzer:
                                 ],
                                 max_tokens=100,
                                 temperature=0.1,
+                                extra_headers={"x-grok-conv-id": self.xai_conv_id}
                             )
                             raw_response = None  # No rate limit headers for x.ai
                         else:
@@ -2053,6 +2116,28 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
             logging.info(f"ACTION: >>> REPORTING <<<")
     else:
         logging.info(f"ACTION: No action needed (benign)")
+        # Track benign analyzed comments for prefilter optimization
+        # Extract trigger reason from detox_scores dict (e.g., {"slur": 1.0} -> "slur")
+        prefilter_trigger = ""
+        for key in detox_scores:
+            if key not in ('toxicity', 'severe_toxicity', 'obscene', 'threat', 'insult', 'identity_attack'):
+                prefilter_trigger = key  # Pattern match like "slur", "direct_insult", etc.
+                break
+        if not prefilter_trigger and detox_scores:
+            # Detoxify triggered - find highest score
+            top_label = max(detox_scores, key=detox_scores.get)
+            prefilter_trigger = f"detoxify:{top_label}={detox_scores[top_label]:.2f}"
+        
+        track_benign_analyzed(
+            comment_id=thing_id,
+            permalink=permalink,
+            text=text,
+            llm_reason=result.reason,
+            detoxify_score=detox_score,
+            detoxify_scores=detox_scores,
+            is_top_level=is_top_level,
+            prefilter_trigger=prefilter_trigger
+        )
     
     logging.info(f"={'='*60}")
 
