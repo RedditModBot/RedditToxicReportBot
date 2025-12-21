@@ -339,24 +339,37 @@ VERDICT: BENIGN
 REASON: <under 80 chars>
 
 REASON RULES:
-- Keep it factual and specific.
+- Be SPECIFIC about what the violation is - quote or paraphrase the problematic phrase
+- Keep under 80 characters but be descriptive
 - Do NOT mention rules, policies, or subreddit names.
 - Do NOT hedge ("maybe", "possibly").
 
-Preferred REASON phrasings (pick the closest):
-REPORT reasons:
-- "Direct insult at user"
-- "Mental health insult at user"
-- "Threat/harassment"
-- "Encourages self-harm"
-- "Hate speech / slur"
-- "Accuses user of being a bot/fed"
-- "Advocates violence/illegal act"
-- "Doxxing / witch-hunt"
+REPORT reason examples (be specific like these):
+- "Calls user 'dumbass' directly"
+- "Uses 'neurodivergent' as insult against user"
+- "Tells user to 'fuck off'"
+- "'take your meds' used as attack"
+- "Calls user a 'shill' / 'bot'"
+- "Threatens to 'find' user"
+- "Uses 'retard' slur"
+- "Suggests user should harm themselves"
+- "Requests doxxing of person"
+
+BAD (too vague):
+- "Direct insult at user" ← doesn't say WHAT insult
+- "Toxic comment" ← meaningless
+- "Uncivil" ← too generic
+
+GOOD (specific):
+- "Calls user 'idiot' and 'moron'"
+- "'mental illness' used as insult"
+- "Accuses user of being paid shill"
 
 BENIGN reasons:
-- "Criticizes ideas/evidence"
-- "Insults public figure"
-- "Profanity/emphasis, not targeted"
-- "Mild snark/venting"
-- "No report-level toxicity"
+- "Criticizes ideas/evidence, not user"
+- "Insults public figure (Greer), not user"
+- "Profanity as emphasis, not targeted"
+- "Mild snark, no direct attack"
+- "Third party criticism, not user"
+- "Movie quote / reference"
+- "Rhetorical question, not attack"
