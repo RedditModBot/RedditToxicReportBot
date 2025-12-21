@@ -403,6 +403,31 @@
       "crazy video", "insane video", "wild video",
       "that's insane", "that's crazy", "that's wild",
       "this is insane", "this is crazy", "this is wild"
+    ],
+
+    "frustration_exclamations": [
+      "fuck it", "screw it", "fuck this", "fuck that",
+      "fuck me", "fml", "fuck my life",
+      "oh shit", "no shit", "the shit",
+      "the fuck", "the hell", "wtf", "wth",
+      "for fuck's sake", "for fucks sake", "ffs",
+      "for god's sake", "for gods sake", "for christ's sake",
+      "for crying out loud",
+      "jesus christ", "jesus fucking christ", "christ almighty",
+      "damn it", "dammit", "goddamn", "god damn it", "goddammit",
+      "oh my god", "omg", "omfg", "oh my fucking god",
+      "son of a bitch", "bloody hell", "what the bloody hell"
+    ],
+
+    "enthusiastic_agreement": [
+      "hell yeah", "hell yes", "fuck yeah", "fuck yes",
+      "damn right", "damn straight"
+    ],
+
+    "disbelief_at_situation": [
+      "this is bullshit", "what bullshit", "such bullshit", "total bullshit",
+      "that's bullshit", "complete bullshit", "utter bullshit",
+      "un-fucking-believable", "unfuckingbelievable", "abso-fucking-lutely"
     ]
   },
 
