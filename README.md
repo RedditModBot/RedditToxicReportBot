@@ -110,6 +110,15 @@ Default chain tries models in order until one succeeds:
 5. `meta-llama/llama-guard-4-12b` - Content moderation specific, 500K tokens/day
 6. `llama-3.1-8b-instant` - Fast, highest limits (last resort)
 
+**Optional: x.ai Grok Models** (requires `XAI_API_KEY`):
+- `grok-4-1-fast-reasoning` - $0.20/$0.50 per M tokens, great for moderation
+- `grok-3` - $3.00/$15.00 per M tokens, more powerful
+
+You can mix Groq (free) and x.ai (paid) models in your fallback chain. For example:
+```
+LLM_FALLBACK_CHAIN=llama-3.3-70b-versatile,grok-4-1-fast-reasoning,llama-3.1-8b-instant
+```
+
 **Smart Cooldown System**: When rate limited, the bot remembers which models are unavailable and skips them automatically. Cooldowns include a 60-second buffer to ensure rate limits fully reset.
 
 ---
@@ -230,6 +239,7 @@ When a short comment matches these AND isn't directed at a user, skip the AI ent
 - Python 3.9+
 - Reddit account with mod permissions (for moderator reports)
 - Groq API key (free at https://console.groq.com)
+- x.ai API key (optional, paid - for Grok models at https://console.x.ai)
 - Discord webhook (optional, for notifications)
 
 ---
@@ -747,6 +757,7 @@ Edit `moderation_patterns.json` to add/remove:
 - Check Groq dashboard for usage: https://console.groq.com/settings/organization/usage
 - The fallback chain should handle this automatically
 - If ALL models are exhausted, add more models to `LLM_FALLBACK_CHAIN`
+- Consider adding x.ai Grok models as fallback (requires `XAI_API_KEY`)
 - Lower `LLM_REQUESTS_PER_MINUTE` to `1` for slower but safer operation
 - Look for "Skipping [model] - on cooldown" in logs to see what's happening
 
@@ -779,5 +790,6 @@ MIT License - feel free to use and modify.
 ## Credits
 
 - [Detoxify](https://github.com/unitaryai/detoxify) for local toxicity scoring
-- [Groq](https://groq.com) for fast, free LLM inference
-- [PRAW](https://praw.readthedocs.io) for Reddit API access
+- [Groq](https://groq.com) Free LLM (within limits)
+- [x.ai](https://x.ai) for Grok API (optional paid alternative)
+- [PRAW](https://praw.readthedocs.io) Reddit API
