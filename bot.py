@@ -27,6 +27,7 @@ import prawcore
 
 # -------- LLM --------
 from groq import Groq
+from openai import OpenAI  # For x.ai Grok API (OpenAI-compatible)
 
 # -------- discord optional --------
 import urllib.request
@@ -65,7 +66,8 @@ def save_tracked_comments(comments: List[Dict]) -> None:
         json.dump(comments, f, indent=2)
 
 def track_reported_comment(comment_id: str, permalink: str, text: str, 
-                           groq_reason: str, detoxify_score: float) -> None:
+                           groq_reason: str, detoxify_score: float,
+                           is_top_level: bool = False) -> None:
     """Add a newly reported comment to tracking"""
     comments = load_tracked_comments()
     
@@ -79,6 +81,7 @@ def track_reported_comment(comment_id: str, permalink: str, text: str,
         "text": text[:500],  # Truncate long comments
         "groq_reason": groq_reason,
         "detoxify_score": detoxify_score,
+        "is_top_level": is_top_level,
         "reported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "outcome": "pending",
         "checked_at": ""
@@ -225,6 +228,7 @@ class Config:
 
     # LLM
     groq_api_key: str
+    xai_api_key: str  # Optional: for x.ai Grok models
     llm_model: str
     llm_fallback_chain: List[str]  # Fallback models in order of preference
     llm_daily_limit: int        # Switch to fallback after this many calls
@@ -303,6 +307,7 @@ def load_config() -> Config:
         subreddits=[s.strip() for s in subs.split(",") if s.strip()],
         
         groq_api_key=os.environ["GROQ_API_KEY"],
+        xai_api_key=os.getenv("XAI_API_KEY", ""),  # Optional
         llm_model=os.getenv("LLM_MODEL", "groq/compound"),
         llm_fallback_chain=[s.strip() for s in os.getenv("LLM_FALLBACK_CHAIN", 
             "llama-3.3-70b-versatile,meta-llama/llama-4-scout-17b-16e-instruct,meta-llama/llama-4-maverick-17b-128e-instruct,llama-3.1-8b-instant"
@@ -1075,12 +1080,23 @@ class AnalysisResult:
 
 
 class LLMAnalyzer:
-    """Uses Groq (free tier) to analyze comments for toxicity with context understanding"""
+    """Uses Groq (free tier) or x.ai Grok API for toxicity analysis with context understanding"""
     
-    def __init__(self, api_key: str, model: str, guidelines: str, 
+    # x.ai model prefixes - models starting with these use x.ai API
+    XAI_MODEL_PREFIXES = ("grok-", "grok/")
+    
+    def __init__(self, groq_api_key: str, model: str, guidelines: str, 
                  fallback_chain: List[str] = None, daily_limit: int = 240,
-                 requests_per_minute: int = 2):
-        self.client = Groq(api_key=api_key)
+                 requests_per_minute: int = 2, xai_api_key: str = ""):
+        # Groq client (always available)
+        self.groq_client = Groq(api_key=groq_api_key)
+        
+        # x.ai client (optional, for Grok models)
+        self.xai_client = None
+        if xai_api_key:
+            self.xai_client = OpenAI(api_key=xai_api_key, base_url="https://api.x.ai/v1")
+            logging.info("x.ai Grok API configured")
+        
         self.primary_model = model
         self.fallback_chain = fallback_chain or []
         self.daily_limit = daily_limit
@@ -1101,6 +1117,18 @@ class LLMAnalyzer:
         
         # Total stats
         self.api_calls = 0
+    
+    def _is_xai_model(self, model: str) -> bool:
+        """Check if a model should use x.ai API"""
+        return model.lower().startswith(self.XAI_MODEL_PREFIXES)
+    
+    def _get_client_for_model(self, model: str):
+        """Get the appropriate client for a model"""
+        if self._is_xai_model(model):
+            if not self.xai_client:
+                raise ValueError(f"Model {model} requires XAI_API_KEY to be set")
+            return self.xai_client
+        return self.groq_client
     
     def _wait_for_rate_limit(self) -> None:
         """Wait if needed to respect rate limit"""
@@ -1286,19 +1314,38 @@ class LLMAnalyzer:
                 
                 logging.info(f"Trying model {model_idx + 1}/{len(models_to_try)}: {model_to_use}")
                 
+                # Check if this is an x.ai model and we have the client
+                is_xai = self._is_xai_model(model_to_use)
+                if is_xai and not self.xai_client:
+                    logging.warning(f"Skipping {model_to_use} - XAI_API_KEY not configured")
+                    continue
+                
                 for attempt in range(max_retries):
                     try:
-                        # Use with_raw_response to get rate limit headers
-                        raw_response = self.client.chat.completions.with_raw_response.create(
-                            model=model_to_use,
-                            messages=[
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": user_prompt}
-                            ],
-                            max_tokens=100,
-                            temperature=0.1,  # Low temp for consistent classification
-                        )
-                        response = raw_response.parse()
+                        if is_xai:
+                            # x.ai API (OpenAI-compatible) - simpler, no raw_response
+                            response = self.xai_client.chat.completions.create(
+                                model=model_to_use,
+                                messages=[
+                                    {"role": "system", "content": system_prompt},
+                                    {"role": "user", "content": user_prompt}
+                                ],
+                                max_tokens=100,
+                                temperature=0.1,
+                            )
+                            raw_response = None  # No rate limit headers for x.ai
+                        else:
+                            # Groq API - use with_raw_response to get rate limit headers
+                            raw_response = self.groq_client.chat.completions.with_raw_response.create(
+                                model=model_to_use,
+                                messages=[
+                                    {"role": "system", "content": system_prompt},
+                                    {"role": "user", "content": user_prompt}
+                                ],
+                                max_tokens=100,
+                                temperature=0.1,  # Low temp for consistent classification
+                            )
+                            response = raw_response.parse()
                         
                         if model_to_use != models_to_try[0]:
                             logging.info(f"Successfully used fallback model: {model_to_use}")
@@ -1306,8 +1353,9 @@ class LLMAnalyzer:
                         if model_to_use in self.model_cooldowns:
                             del self.model_cooldowns[model_to_use]
                         
-                        # Check rate limit headers from response
-                        self._check_rate_limit_headers(model_to_use, raw_response.headers)
+                        # Check rate limit headers from response (Groq only)
+                        if raw_response and hasattr(raw_response, 'headers'):
+                            self._check_rate_limit_headers(model_to_use, raw_response.headers)
                         
                         success = True
                         break  # Success - exit retry loop
@@ -1715,7 +1763,7 @@ def save_false_positives(entries: List[Dict]) -> None:
 
 def track_false_positive(comment_id: str, permalink: str, text: str,
                          groq_reason: str, detoxify_score: float,
-                         reported_at: str) -> None:
+                         reported_at: str, is_top_level: bool = False) -> None:
     """Track a false positive (reported comment that was approved)"""
     entries = load_false_positives()
     
@@ -1729,6 +1777,7 @@ def track_false_positive(comment_id: str, permalink: str, text: str,
         "text": text[:1000],
         "groq_reason": groq_reason,
         "detoxify_score": detoxify_score,
+        "is_top_level": is_top_level,
         "reported_at": reported_at,
         "discovered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     })
@@ -1790,7 +1839,8 @@ def check_and_track_false_positives(reddit: praw.Reddit, webhook: str = None) ->
                     text=entry.get("text", ""),
                     groq_reason=entry.get("groq_reason", ""),
                     detoxify_score=entry.get("detoxify_score", 0),
-                    reported_at=reported_at
+                    reported_at=reported_at,
+                    is_top_level=entry.get("is_top_level", False)
                 )
                 new_false_positives.append(entry)
             
@@ -2021,7 +2071,8 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
                     permalink=permalink,
                     text=text,
                     groq_reason=result.reason,
-                    detoxify_score=detox_score
+                    detoxify_score=detox_score,
+                    is_top_level=is_top_level
                 )
                 # Send Discord notification for report
                 notify_discord_report(
@@ -2108,7 +2159,8 @@ def main() -> None:
 
     # LLM Analyzer
     analyzer = LLMAnalyzer(
-        api_key=cfg.groq_api_key,
+        groq_api_key=cfg.groq_api_key,
+        xai_api_key=cfg.xai_api_key,
         model=cfg.llm_model,
         guidelines=cfg.moderation_guidelines,
         fallback_chain=cfg.llm_fallback_chain,
@@ -2116,6 +2168,8 @@ def main() -> None:
         requests_per_minute=cfg.llm_requests_per_minute
     )
     logging.info(f"Using LLM model: {cfg.llm_model} (max {cfg.llm_requests_per_minute} requests/min)")
+    if cfg.xai_api_key:
+        logging.info(f"x.ai Grok API available for grok-* models")
     logging.info(f"Fallback chain: {' -> '.join(cfg.llm_fallback_chain)}")
     
     # Discord setup
