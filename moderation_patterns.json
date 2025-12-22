@@ -273,8 +273,11 @@
   "shill_accusations": {
     "_comment": "Accusations of being paid agents/bots - escalate when directed at users",
     "terms": [
-      "you're a bot", "youre a bot", "ur a bot",
-      "you're a shill", "youre a shill",
+      "you're a bot", "youre a bot", "ur a bot", "you are a bot",
+      "bad bot", "stupid bot", "dumb bot", "fucking bot",
+      "bot account", "bot response", "bot reply", "bot comment",
+      "disinformation bot", "disinfo bot", "propaganda bot",
+      "you're a shill", "youre a shill", "you are a shill",
       "you're a fed", "youre a fed",
       "you're a glowie", "youre a glowie",
       "you're a spook", "youre a spook",
@@ -385,7 +388,8 @@
       "cope", "seethe", "mald",
       "cry more", "cry about it",
       "stay mad", "die mad",
-      "touch grass"
+      "touch grass",
+      "bad bot"
     ]
   },
 
