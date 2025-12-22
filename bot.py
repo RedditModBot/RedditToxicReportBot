@@ -736,11 +736,34 @@ def contains_self_harm(text: str) -> bool:
     normalized = normalize_text(text)
     squashed = squash_text(text)
     
-    # Check squashed for spaced evasions
-    if 'kys' in squashed or 'killyourself' in squashed:
+    # Check squashed for spaced evasions like "k y s" or "k.y" but NOT words that 
+    # happen to contain these letters (e.g., "sticky slots" -> "stickys" contains "kys")
+    # Only match if the squashed pattern appears near word boundaries in original
+    
+    # For "kys" - only match if original has k, y, s separated by non-letters
+    # e.g., "k y s", "k.y.s", "k-y-s" but not "stickys"
+    kys_pattern = r'\bk[\s\.\-\_\*]*y[\s\.\-\_\*]*s\b'
+    if re.search(kys_pattern, normalized, re.IGNORECASE):
         return True
-    if 'godie' in squashed or 'drinkbleach' in squashed:
-        return True
+    
+    # For "kill yourself" with spaces/punctuation
+    if 'killyourself' in squashed:
+        # Verify it's actually spaced out, not part of another word
+        kill_yourself_pattern = r'\bkill[\s\.\-\_\*]*your[\s\.\-\_\*]*self\b'
+        if re.search(kill_yourself_pattern, normalized, re.IGNORECASE):
+            return True
+    
+    # "go die" with spaces  
+    if 'godie' in squashed:
+        go_die_pattern = r'\bgo[\s\.\-\_\*]*die\b'
+        if re.search(go_die_pattern, normalized, re.IGNORECASE):
+            return True
+            
+    # "drink bleach" with spaces
+    if 'drinkbleach' in squashed:
+        drink_bleach_pattern = r'\bdrink[\s\.\-\_\*]*bleach\b'
+        if re.search(drink_bleach_pattern, normalized, re.IGNORECASE):
+            return True
     
     # Check phrases with word boundaries to avoid false matches
     # e.g., "end it" should not match "recommend it"
