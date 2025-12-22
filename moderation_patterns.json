@@ -537,7 +537,12 @@
       "\\bu/\\w+",
       "\\b(you|your|you're|youre|ur)\\b",
       "\\bop\\b",
-      "\\bmods?\\b"
+      "\\bmods?\\b",
+      "\\by'?all\\b",
+      "\\byou (all|guys|people)\\b",
+      "\\ball of you\\b",
+      "\\beveryone here\\b",
+      "\\bthis (sub|subreddit)\\b"
     ],
 
     "_comment2": "If you want obfuscated slur matching without listing variants, generate regex from the term list using a joiner like \\W* between letters."
