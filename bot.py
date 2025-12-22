@@ -683,14 +683,15 @@ def is_strongly_directed(text: str) -> bool:
     Check if comment is STRONGLY directed at another user.
     Use this for threshold lowering and shill accusation logic.
     
-    Strong signals: explicit user reference, "you/your", "OP", "mods"
+    Strong signals: explicit user reference, "you/your", "OP", "mods",
+    collective addresses like "y'all", "you guys", "everyone here", "this sub"
     """
     text_lower = text.lower()
     
     # Explicit user mention
     if re.search(r'\bu/\w+', text_lower):
         return True
-    # Direct address
+    # Direct address (you/your/you're/ur)
     if re.search(r'\b(you|your|you\'re|youre|ur)\b', text_lower):
         return True
     # OP reference
@@ -698,6 +699,21 @@ def is_strongly_directed(text: str) -> bool:
         return True
     # Mod reference (often targeted)
     if re.search(r'\bmods?\b', text_lower):
+        return True
+    # Y'all / yall
+    if re.search(r'\by\'?all\b', text_lower):
+        return True
+    # Collective: "you all", "you guys", "you people"
+    if re.search(r'\byou (all|guys|people)\b', text_lower):
+        return True
+    # "all of you"
+    if re.search(r'\ball of you\b', text_lower):
+        return True
+    # "everyone here"
+    if re.search(r'\beveryone here\b', text_lower):
+        return True
+    # "this sub" / "this subreddit" (attacking the community)
+    if re.search(r'\bthis (sub|subreddit)\b', text_lower):
         return True
     
     return False
