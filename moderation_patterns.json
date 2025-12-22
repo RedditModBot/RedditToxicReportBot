@@ -147,7 +147,7 @@
     "disability_context": ["spaz", "spastic", "special needs", "short bus"],
     "religion_mocking": ["sky fairy", "sky daddy"],
     "ufo_ambiguous": ["fake", "fakes"],
-    "ambiguous_insults": ["thick", "tool", "joke"],
+    "ambiguous_insults": ["thick", "tool", "joke", "dense", "freak", "freaks", "creep", "creeps", "fraud", "frauds"],
     
     "extremism_references": [
       "neo nazi", "neonazi", "white power", "whitepower", "swastika",
@@ -312,7 +312,6 @@
       "smooth brain", "smoothbrain",
       "room temperature iq", "single digit iq", "low iq", "negative iq",
       "no brain cells", "two brain cells",
-      "dense",
       "simpleton", "simpletons", "dimwit", "dimwits", "nitwit", "nitwits", "halfwit", "halfwits", "twit", "twits", "dunce", "dunces",
       "numbskull", "bonehead", "blockhead", "meathead", "pinhead",
       "pea brain", "airhead", "dolt", "ignoramus",
@@ -335,7 +334,7 @@
       "asshole", "assholes", "asshat", "asshats", "assclown", "asswipe", "assface",
       "jackass", "jackasses", "dipshit", "dipshits", "dickhead", "dickheads", "dickwad", "dickweed", "dickless",
       "prick", "pricks", "jerk", "jerks", "jerkoff", "jerkass",
-      "creep", "creeps", "weirdo", "weirdos", "freak", "freaks", "sicko", "sickos", "pervert", "perverts", "perv",
+      "weirdo", "weirdos", "sicko", "sickos", "pervert", "perverts", "perv",
       "shithead", "shitheads", "shitstain", "shitstains", "shitbag", "shitbags", "shitface", "shitgibbon",
       "fuckface", "fuckhead", "fuckwit", "fuckwad", "fucktard", "fucktards",
       "cockhead", "cockface",
@@ -345,7 +344,7 @@
       "incel", "incels", "neckbeard", "neckbeards", "basement dweller",
       "simp", "simps", "cuck", "cucks", "soyboy", "soyboys",
       "bootlicker", "bootlickers", "grifter", "grifters", "shill", "shills",
-      "phony", "phonies", "fraud", "frauds",
+      "phony", "phonies",
       "coward", "cowards",
       "parasite", "parasites", "leech", "leeches", "vermin", "maggot", "maggots", "cockroach", "cockroaches"
     ],
@@ -394,7 +393,7 @@
       "cry more", "cry about it",
       "stay mad",
       "touch grass",
-      "bad bot", "ok boomer", "whatever"
+      "bad bot", "ok boomer"
     ]
   },
 
