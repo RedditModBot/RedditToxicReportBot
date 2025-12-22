@@ -554,10 +554,21 @@ def build_shill_set() -> set:
     terms = PATTERNS.get("shill_accusations", {}).get("terms", [])
     return set(t.lower() for t in terms)
 
-def build_dismissive_hostile_set() -> set:
-    """Build set of dismissive/hostile phrases from JSON"""
-    phrases = PATTERNS.get("dismissive_hostile", {}).get("phrases", [])
-    return set(p.lower() for p in phrases)
+def build_dismissive_hostile_sets() -> Tuple[set, set]:
+    """
+    Build sets of dismissive/hostile phrases from JSON.
+    Returns (hard_phrases, soft_phrases)
+    - Hard: Always escalate on reply (fuck off, eat shit, etc.)
+    - Soft: Only escalate when strongly directed (cope, touch grass, etc.)
+    """
+    dismissive = PATTERNS.get("dismissive_hostile", {})
+    hard = set(p.lower() for p in dismissive.get("hard", []))
+    soft = set(p.lower() for p in dismissive.get("soft", []))
+    # Fallback for old format
+    if not hard and not soft:
+        phrases = dismissive.get("phrases", [])
+        hard = set(p.lower() for p in phrases)
+    return hard, soft
 
 def build_insult_sets() -> Tuple[set, set]:
     """
@@ -626,7 +637,7 @@ THREAT_PHRASES = build_threat_set()
 SEXUAL_VIOLENCE_PHRASES = build_sexual_violence_set()
 BRIGADING_PHRASES = build_brigading_set()
 SHILL_PHRASES = build_shill_set()
-DISMISSIVE_HOSTILE_PHRASES = build_dismissive_hostile_set()
+DISMISSIVE_HARD_PHRASES, DISMISSIVE_SOFT_PHRASES = build_dismissive_hostile_sets()
 INSULT_WORDS, INSULT_PHRASES = build_insult_sets()
 VIOLENCE_ILLEGAL_PHRASES = build_violence_illegal_set()
 CONTEXTUAL_WORDS, CONTEXTUAL_PHRASES = build_contextual_terms_sets()
@@ -813,16 +824,28 @@ def contains_shill_accusation(text: str) -> bool:
             return True
     return False
 
-def contains_dismissive_hostile(text: str) -> bool:
-    """Check if text contains dismissive/hostile phrases"""
+def contains_dismissive_hostile(text: str) -> Tuple[bool, str]:
+    """
+    Check if text contains dismissive/hostile phrases.
+    Returns (matched, type) where type is 'hard', 'soft', or '' if no match.
+    - Hard: Always escalate on reply (fuck off, stfu, etc.)
+    - Soft: Only escalate when strongly directed (cope, touch grass, etc.)
+    """
     normalized = normalize_text(text)
     
-    for phrase in DISMISSIVE_HOSTILE_PHRASES:
-        # Use word boundaries for all phrases to avoid false matches
+    # Check hard phrases first
+    for phrase in DISMISSIVE_HARD_PHRASES:
         pattern = r'\b' + re.escape(phrase) + r'\b'
         if re.search(pattern, normalized):
-            return True
-    return False
+            return True, "hard"
+    
+    # Check soft phrases
+    for phrase in DISMISSIVE_SOFT_PHRASES:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
+            return True, "soft"
+    
+    return False, ""
 
 def contains_violence_illegal(text: str) -> bool:
     """Check if text contains violence/illegal advocacy phrases"""
@@ -1025,15 +1048,24 @@ class SmartPreFilter:
             logging.info(f"PREFILTER | MUST_ESCALATE (shill accusation) | '{text_preview}...'")
             return True, 1.0, {"shill_accusation": 1.0}
         
-        # Check dismissive/hostile
-        # For replies, these phrases are almost always directed at the person being replied to
-        # even if they don't say "you" explicitly (e.g., just "shut up" or "fuck off")
-        if contains_dismissive_hostile(text):
-            if is_strongly_directed(text) or not is_top_level:
-                self.must_escalate += 1
-                context = "directed" if is_strongly_directed(text) else "reply"
-                logging.info(f"PREFILTER | MUST_ESCALATE (dismissive + {context}) | '{text_preview}...'")
-                return True, 1.0, {"dismissive_hostile": 1.0}
+        # Check dismissive/hostile - now split into hard and soft
+        # Hard phrases (fuck off, eat shit) escalate on any reply
+        # Soft phrases (cope, touch grass) only escalate when strongly directed
+        has_dismissive, dismissive_type = contains_dismissive_hostile(text)
+        if has_dismissive:
+            if dismissive_type == "hard":
+                # Hard phrases: escalate if directed OR if it's a reply
+                if is_strongly_directed(text) or not is_top_level:
+                    self.must_escalate += 1
+                    context = "directed" if is_strongly_directed(text) else "reply"
+                    logging.info(f"PREFILTER | MUST_ESCALATE (dismissive_hard + {context}) | '{text_preview}...'")
+                    return True, 1.0, {"dismissive_hostile": 1.0}
+            else:
+                # Soft phrases: only escalate if strongly directed (not just reply)
+                if is_strongly_directed(text):
+                    self.must_escalate += 1
+                    logging.info(f"PREFILTER | MUST_ESCALATE (dismissive_soft + directed) | '{text_preview}...'")
+                    return True, 1.0, {"dismissive_hostile": 1.0}
         
         # Check direct insults + strongly directed (or reply context)
         if contains_direct_insult(text):
