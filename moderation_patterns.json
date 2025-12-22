@@ -147,6 +147,7 @@
     "disability_context": ["spaz", "spastic", "special needs", "short bus"],
     "religion_mocking": ["sky fairy", "sky daddy"],
     "ufo_ambiguous": ["fake", "fakes"],
+    "ambiguous_insults": ["thick", "tool", "joke"],
     
     "extremism_references": [
       "neo nazi", "neonazi", "white power", "whitepower", "swastika",
@@ -311,7 +312,7 @@
       "smooth brain", "smoothbrain",
       "room temperature iq", "single digit iq", "low iq", "negative iq",
       "no brain cells", "two brain cells",
-      "dense", "thick",
+      "dense",
       "simpleton", "simpletons", "dimwit", "dimwits", "nitwit", "nitwits", "halfwit", "halfwits", "twit", "twits", "dunce", "dunces",
       "numbskull", "bonehead", "blockhead", "meathead", "pinhead",
       "pea brain", "airhead", "dolt", "ignoramus",
@@ -327,7 +328,7 @@
       "scum", "scumbag", "scumbags", "dirtbag", "dirtbags", "sleazebag", "lowlife", "lowlifes", "degenerate", "degenerates",
       "garbage human", "trash person", "human garbage", "human trash",
       "subhuman", "disgrace", "embarrassment",
-      "joke", "clown", "clowns", "fool", "fools", "tool",
+      "clown", "clowns", "fool", "fools",
       "troll", "trolls", "trolling", "daft",
       "libtard", "libtards", "trumptard", "trumptards", "contard", "contards", "republicunt", "republicunts", "demotard", "demotards",
       "douche", "douches", "douchebag", "douchebags", "douchenozzle", "douchewaffle", "douchey",
