@@ -375,22 +375,26 @@
   },
 
   "dismissive_hostile": {
-    "_comment": "Hostile dismissiveness patterns - escalate when clearly attacking",
-    "phrases": [
+    "_comment": "Hostile dismissiveness patterns - split into hard (always escalate) and soft (only when directed)",
+    "hard": [
       "shut up", "shut the fuck up", "stfu",
-      "fuck off", "piss off", "go away", "get lost", "get fucked",
+      "fuck off", "piss off", "get fucked",
       "fuck you", "gtfo", "get the fuck out",
       "go fuck yourself", "gfy",
       "eat shit", "eat a dick",
       "suck a dick", "suck my dick", "blow me", "kiss my ass",
       "shove it", "screw you",
+      "die mad"
+    ],
+    "soft": [
+      "go away", "get lost",
       "nobody asked", "who asked", "didn't ask",
       "nobody cares", "no one cares",
       "cope", "seethe", "mald",
       "cry more", "cry about it",
-      "stay mad", "die mad",
+      "stay mad",
       "touch grass",
-      "bad bot"
+      "bad bot", "ok boomer", "whatever"
     ]
   },
 
@@ -410,6 +414,23 @@
       "crazy video", "insane video", "wild video",
       "that's insane", "that's crazy", "that's wild",
       "this is insane", "this is crazy", "this is wild"
+    ],
+
+    "ufo_skepticism_phrases": [
+      "obviously fake", "clearly fake", "looks fake", "so fake",
+      "it's cgi", "its cgi", "just cgi", "obvious cgi", "clearly cgi",
+      "it's a balloon", "its a balloon", "just a balloon", "weather balloon",
+      "it's a drone", "its a drone", "just a drone", "obviously a drone",
+      "it's starlink", "its starlink", "just starlink", "starlink satellites",
+      "lens flare", "it's a lens flare", "just lens flare",
+      "it's a bird", "its a bird", "just a bird", "just birds",
+      "it's a plane", "its a plane", "just a plane",
+      "it's a satellite", "its a satellite", "just a satellite",
+      "chinese lantern", "chinese lanterns", "sky lantern",
+      "bokeh", "out of focus",
+      "it's a hoax", "obvious hoax", "clearly a hoax",
+      "photoshopped", "photoshop", "clearly photoshopped",
+      "ai generated", "ai slop"
     ],
 
     "frustration_exclamations": [
@@ -498,7 +519,6 @@
       "\\byou\\W*'?re\\W+(a\\W+)?(bot|shill|fed|glowie|spook|agent|plant)\\b",
       "\\b(nice|obvious|clearly?)\\W+(try\\W+)?(bot|shill|fed)\\b",
       "\\bhow\\W*much\\W+(do\\W+)?(they|you)\\W+pay\\b",
-      "\\beglin\\W*(air\\W*force|afb)?\\b",
       "\\bpaid\\W+(shill|troll|poster|disinfo)\\b",
       "\\b(cia|nsa|fbi|dia)\\W+(agent|shill|bot)\\b",
 
