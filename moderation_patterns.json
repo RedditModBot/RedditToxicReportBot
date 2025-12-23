@@ -435,7 +435,10 @@
     "frustration_exclamations": [
       "fuck it", "screw it", "fuck this", "fuck that",
       "fuck me", "fml", "fuck my life",
-      "oh shit", "no shit", "the shit", "aw shit", "ah shit",
+      "oh shit", "no shit", "the shit", "this shit", "that shit", "aw shit", "ah shit",
+      "all this shit", "all that shit", "same shit", "good shit", "cool shit",
+      "crazy shit", "wild shit", "weird shit", "real shit", "serious shit", "deep shit", "random shit",
+      "this crap", "that crap", "all this crap", "load of crap", "bunch of crap",
       "wtf", "wth",
       "for fuck's sake", "for fucks sake", "ffs",
       "for god's sake", "for gods sake", "for christ's sake",
@@ -443,10 +446,14 @@
       "jesus christ", "jesus fucking christ", "christ almighty",
       "damn it", "dammit", "goddamn", "god damn it", "goddammit",
       "a goddamn", "another goddamn", "always a goddamn",
+      "damn thing", "damn well",
       "oh my god", "omg", "omfg", "oh my fucking god",
       "son of a bitch", "bloody hell", "what the bloody hell",
       "fuck knows", "god knows", "who knows", "who the fuck knows",
-      "christ knows", "heaven knows", "lord knows"
+      "christ knows", "heaven knows", "lord knows",
+      "who the fuck", "where the fuck", "how the fuck", "why the fuck",
+      "who the hell", "where the hell", "how the hell", "why the hell",
+      "hell of a", "the hell out"
     ],
 
     "slang_expressions": [
