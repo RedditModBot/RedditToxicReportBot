@@ -733,6 +733,43 @@ def is_directed_at_person(text: str) -> bool:
     """Alias for is_strongly_directed"""
     return is_strongly_directed(text)
 
+def get_non_quoted_text(text: str) -> str:
+    """
+    Extract the non-quoted portion of a comment.
+    Reddit quotes start with '>' at the beginning of a line.
+    Returns the text without quoted lines.
+    """
+    lines = text.split('\n')
+    non_quoted = []
+    for line in lines:
+        stripped = line.strip()
+        # Skip lines that start with > (quotes)
+        if not stripped.startswith('>'):
+            non_quoted.append(line)
+    return '\n'.join(non_quoted).strip()
+
+def is_primarily_quote(text: str) -> bool:
+    """
+    Check if a comment is primarily quoting someone else.
+    Returns True if more than 50% of the content is quoted.
+    """
+    lines = text.split('\n')
+    quoted_chars = 0
+    total_chars = 0
+    
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        total_chars += len(stripped)
+        if stripped.startswith('>'):
+            quoted_chars += len(stripped)
+    
+    if total_chars == 0:
+        return False
+    
+    return (quoted_chars / total_chars) > 0.5
+
 
 # ============================================
 # 5. PHRASE MATCHING HELPERS
@@ -1389,6 +1426,11 @@ class LLMAnalyzer:
             context_note = "[TOP-LEVEL COMMENT on a post - not replying to another user]"
         else:
             context_note = "[REPLY to another user's comment]"
+        
+        # Check if comment contains Reddit-style quotes
+        has_quotes = '\n>' in text or text.startswith('>')
+        if has_quotes:
+            context_note += "\n[CONTAINS QUOTED TEXT - lines starting with '>' are quoting another user, not the commenter's own words]"
         
         # Build user prompt with post title and context
         user_prompt = f"{context_note}\n"
