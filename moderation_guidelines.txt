@@ -257,6 +257,18 @@ QUOTED INSULTS (in quotation marks):
   e.g., "You carny piece of shit!" (quoting a movie/show) = BENIGN
 - Look for context clues like "crossover", "reference", "reminds me of"
 
+REDDIT QUOTE BLOCKS (lines starting with >):
+- Lines starting with ">" are quoting another user's comment
+- The QUOTED portion is not the commenter's own words
+- Focus on the NON-QUOTED portion when judging the comment
+- Examples:
+  ">you're an idiot for believing this\n\nI never said that" = BENIGN
+    (the insult is what they're REPLYING TO, not what they're saying)
+  ">what do they get from you besides cynicism?\n\nThis is cult bullshit" = BENIGN
+    (calling an ARGUMENT "cult bullshit", not a person)
+- If the non-quoted portion attacks a user, still REPORT
+- If the non-quoted portion just responds to the quote, usually BENIGN
+
 MILD CRITICISM OF ARGUMENTS:
 - "Your argument is pedestrian" → criticizing the argument = BENIGN
 - "That's a lazy take" → criticizing the opinion = BENIGN
