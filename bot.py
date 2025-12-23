@@ -953,25 +953,25 @@ def contains_contextual_term(text: str) -> bool:
 
 def is_benign_exclamation(text: str) -> bool:
     """
-    Check if comment is just a benign exclamation.
+    Check if comment contains a benign phrase that indicates it's not toxic.
     Only matches PHRASES (not single words) and only when NOT strongly directed at someone.
     """
     # If strongly directed at someone, don't skip
     if is_strongly_directed(text):
         return False
     
-    # Strip and lowercase, then remove trailing punctuation for matching
-    text_stripped = text.strip().lower()
-    text_clean = text_stripped.rstrip('!?.,;:')
+    # Normalize text for matching
+    text_lower = text.strip().lower()
     
-    # Check regex patterns for exact matches (short exclamations)
+    # Check regex patterns for exact matches (short exclamations like "lol", "lmao")
     for pattern in BENIGN_PHRASES_RE:
-        if pattern.match(text_stripped):
+        if pattern.match(text_lower):
             return True
     
-    # Check if the entire comment (minus punctuation) is a benign phrase from our list
+    # Check if any benign phrase is CONTAINED in the comment
+    # This catches "No shit everything will change" matching "no shit"
     for phrase in BENIGN_PHRASES_SET:
-        if text_clean == phrase:
+        if phrase in text_lower:
             return True
     
     return False
