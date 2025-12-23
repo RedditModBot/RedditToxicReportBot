@@ -46,7 +46,7 @@
       "golliwog", "golliwogs",
       "mooncricket", "mooncrickets",
       "spearchucker", "spearchuckers",
-      "tarbabys", "tar baby",
+      "tarbaby", "tar baby",
       "timbernigger", "timber nigger",
       "dune coon", "dune-coon",
       "prairie nigger", "prairie niggers",
@@ -568,6 +568,23 @@
       "\\ball of you\\b",
       "\\beveryone here\\b",
       "\\bthis (sub|subreddit)\\b"
+    ],
+
+    "generic_you_phrases": [
+      "you don't need", "you don't have to", "you can't just", "you can't really", "you can't even",
+      "you couldn't", "you wouldn't", "you shouldn't have to",
+      "you have to understand", "you have to remember", "you have to realize", "you have to consider",
+      "you need to understand", "you need to remember", "you need to realize",
+      "you know what", "you know how", "you know when", "you know why", "you know that",
+      "if you know", "as you know", "you know what i mean",
+      "you can see", "you can tell", "you can find", "you can imagine", "you can always",
+      "you could say", "you could argue", "you could see", "you could make",
+      "you get what", "you see what", "you see how", "you see why",
+      "when you think", "when you look", "when you see", "when you consider", "when you read",
+      "if you think", "if you look", "if you ask", "if you want", "if you believe", "if you read",
+      "once you", "before you", "after you", "until you",
+      "makes you think", "makes you wonder", "gets you thinking",
+      "whether you", "wherever you", "however you", "whatever you"
     ],
 
     "_comment2": "If you want obfuscated slur matching without listing variants, generate regex from the term list using a joiner like \\W* between letters."
