@@ -685,15 +685,38 @@ def is_strongly_directed(text: str) -> bool:
     
     Strong signals: explicit user reference, "you/your", "OP", "mods",
     collective addresses like "y'all", "you guys", "everyone here", "this sub"
+    
+    Excludes "generic you" phrases like "you don't need to", "if you think", etc.
+    which are impersonal and not directed at a specific user.
     """
     text_lower = text.lower()
     
-    # Explicit user mention
+    # Explicit user mention - always directed
     if re.search(r'\bu/\w+', text_lower):
         return True
-    # Direct address (you/your/you're/ur)
-    if re.search(r'\b(you|your|you\'re|youre|ur)\b', text_lower):
+    
+    # Check for "you/your" words
+    has_you = bool(re.search(r'\b(you|your|you\'re|youre|ur)\b', text_lower))
+    
+    if has_you:
+        # Check if ALL instances of "you" are in generic phrases
+        generic_phrases = PATTERNS.get("regex_patterns", {}).get("generic_you_phrases", [])
+        
+        # If any generic phrase is found, check if "you" appears outside of it
+        text_check = text_lower
+        for phrase in generic_phrases:
+            text_check = text_check.replace(phrase.lower(), "")
+        
+        # If "you" still appears after removing generic phrases, it's directed
+        if re.search(r'\b(you|your|you\'re|youre|ur)\b', text_check):
+            return True
+        else:
+            # All "you" instances were in generic phrases - not directed
+            has_you = False
+    
+    if has_you:
         return True
+    
     # OP reference
     if re.search(r'\bop\b', text_lower):
         return True
