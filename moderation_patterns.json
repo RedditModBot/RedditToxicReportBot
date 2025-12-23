@@ -450,13 +450,18 @@
     ],
 
     "slang_expressions": [
-      "deadass", "dead ass", "no cap", "on god", "fr fr", "frfr"
+      "deadass", "dead ass", "no cap", "on god", "fr fr", "frfr",
+      "fuck all", "know fuck all", "knows fuck all", "dont know fuck all",
+      "type shit", "type of shit", "and shit", "or some shit",
+      "blah blah", "blah blah blah"
     ],
 
     "enthusiastic_agreement": [
       "hell yeah", "hell yes", "fuck yeah", "fuck yes",
       "damn right", "damn straight",
-      "shut up and take my money"
+      "shut up and take my money",
+      "that's what i'm saying", "that's what i was saying",
+      "thats what im saying", "thats what i was saying"
     ],
 
     "playful_expressions": [
@@ -464,9 +469,16 @@
       "i love you but", "love you but"
     ],
 
+    "genuine_questions": [
+      "what exactly is a", "what exactly is an", "what is a", "what is an",
+      "how is he a", "how is she a", "how is that a", "how are they",
+      "why is he a", "why is she a", "why is that a",
+      "what does that mean", "what do you mean", "i don't understand"
+    ],
+
     "disbelief_at_situation": [
       "this is bullshit", "what bullshit", "such bullshit", "total bullshit",
-      "that's bullshit", "complete bullshit", "utter bullshit",
+      "that's bullshit", "complete bullshit", "utter bullshit", "pure bullshit",
       "load of bullshit", "bunch of bullshit",
       "tough shit", "tough luck",
       "horse shit", "horseshit", "load of horseshit",
