@@ -297,7 +297,15 @@ class Config:
     openai_moderation_key: str      # API key for OpenAI (also used for moderation)
     openai_moderation_enabled: bool # Whether to use OpenAI Moderation API
     openai_moderation_threshold: float  # Base threshold (0.0-1.0)
-    openai_moderation_mode: str     # "both" or "only"
+    openai_moderation_rpm: int      # Rate limit (requests per minute)
+    openai_moderation_mode: str     # "all" (every comment), "confirm" (only if Detoxify triggers), "only" (no Detoxify)
+    
+    # Perspective API (optional, free from Google)
+    perspective_api_key: str        # API key from Google Cloud
+    perspective_enabled: bool       # Whether to use Perspective API
+    perspective_threshold: float    # Base threshold (0.0-1.0)
+    perspective_rpm: int            # Rate limit (requests per minute)
+    perspective_mode: str           # "all" (every comment), "confirm" (only if Detoxify triggers), "only" (no Detoxify)
     
     # Detoxify thresholds per label
     threshold_threat: float
@@ -383,7 +391,15 @@ def load_config() -> Config:
         openai_moderation_key=os.getenv("OPENAI_API_KEY", ""),  # Reuse same key as for other OpenAI
         openai_moderation_enabled=os.getenv("OPENAI_MODERATION_ENABLED", "false").lower() == "true",
         openai_moderation_threshold=float(os.getenv("OPENAI_MODERATION_THRESHOLD", "0.50")),
-        openai_moderation_mode=os.getenv("OPENAI_MODERATION_MODE", "both"),  # "both" or "only"
+        openai_moderation_rpm=int(os.getenv("OPENAI_MODERATION_RPM", "30")),  # Requests per minute
+        openai_moderation_mode=os.getenv("OPENAI_MODERATION_MODE", "confirm"),  # "all", "confirm", or "only"
+        
+        # Perspective API settings
+        perspective_api_key=os.getenv("PERSPECTIVE_API_KEY", ""),
+        perspective_enabled=os.getenv("PERSPECTIVE_ENABLED", "false").lower() == "true",
+        perspective_threshold=float(os.getenv("PERSPECTIVE_THRESHOLD", "0.70")),
+        perspective_rpm=int(os.getenv("PERSPECTIVE_RPM", "60")),  # Requests per minute
+        perspective_mode=os.getenv("PERSPECTIVE_MODE", "confirm"),  # "all", "confirm", or "only"
         
         # Per-label thresholds (lower = more sensitive)
         threshold_threat=float(os.getenv("THRESHOLD_THREAT", "0.15")),
@@ -1036,13 +1052,14 @@ def is_benign_exclamation(text: str) -> bool:
 
 
 # ============================================
-# 6. OPENAI MODERATION API CLIENT
+# 6. EXTERNAL MODERATION API CLIENTS
 # ============================================
 
 class OpenAIModerationClient:
     """
     Client for OpenAI's free Moderation API.
     Detects: hate, harassment, self-harm, sexual, violence (with sub-categories).
+    Includes rate limiting to avoid 429 errors.
     """
     
     # Categories and their thresholds for flagging
@@ -1060,20 +1077,25 @@ class OpenAIModerationClient:
         'violence/graphic': 0.7,
     }
     
-    def __init__(self, api_key: str, threshold: float = 0.5):
+    def __init__(self, api_key: str, threshold: float = 0.5, requests_per_minute: int = 30):
         self.api_key = api_key
         self.base_threshold = threshold
         self.available = bool(api_key)
         self.total_calls = 0
         self.flagged_count = 0
         self.errors = 0
+        self.rate_limited_skips = 0
         self.client = None
+        
+        # Rate limiting
+        self.requests_per_minute = requests_per_minute
+        self.request_times = []
         
         if self.available:
             try:
                 from openai import OpenAI
                 self.client = OpenAI(api_key=api_key)
-                logging.info(f"OpenAI Moderation API enabled (base threshold={threshold})")
+                logging.info(f"OpenAI Moderation API enabled (threshold={threshold}, rate_limit={requests_per_minute}/min)")
             except ImportError:
                 logging.warning("OpenAI library not installed. Run: pip install openai")
                 self.available = False
@@ -1082,6 +1104,18 @@ class OpenAIModerationClient:
                 self.available = False
         else:
             logging.info("OpenAI Moderation API not configured (no OPENAI_API_KEY)")
+    
+    def _check_rate_limit(self) -> bool:
+        """Check if we're within rate limits. Returns True if OK to proceed."""
+        now = time.time()
+        # Remove requests older than 1 minute
+        self.request_times = [t for t in self.request_times if now - t < 60]
+        
+        if len(self.request_times) >= self.requests_per_minute:
+            return False
+        
+        self.request_times.append(now)
+        return True
     
     def check_toxicity(self, text: str) -> Tuple[bool, float, Dict[str, float]]:
         """
@@ -1094,6 +1128,13 @@ class OpenAIModerationClient:
             - all_scores: Dict of category -> score
         """
         if not self.available or not self.client:
+            return False, 0.0, {}
+        
+        # Check rate limit before making request
+        if not self._check_rate_limit():
+            self.rate_limited_skips += 1
+            if self.rate_limited_skips % 10 == 1:  # Log every 10th skip
+                logging.debug(f"OpenAI Moderation rate limited, skipping (total skips: {self.rate_limited_skips})")
             return False, 0.0, {}
         
         try:
@@ -1133,6 +1174,130 @@ class OpenAIModerationClient:
             return False, 0.0, {}
 
 
+class PerspectiveAPIClient:
+    """
+    Client for Google's Perspective API.
+    Detects: toxicity, severe_toxicity, identity_attack, insult, profanity, threat.
+    Free to use with API key from Google Cloud.
+    """
+    
+    # Attributes to request and their thresholds
+    DEFAULT_THRESHOLDS = {
+        'TOXICITY': 0.7,
+        'SEVERE_TOXICITY': 0.5,
+        'IDENTITY_ATTACK': 0.5,
+        'INSULT': 0.7,
+        'PROFANITY': 0.8,  # Higher - profanity alone isn't always bad
+        'THREAT': 0.5,
+    }
+    
+    DISCOVERY_URL = "https://commentanalyzer.googleapis.com/$discovery/rest?version=v1alpha1"
+    
+    def __init__(self, api_key: str, threshold: float = 0.7, requests_per_minute: int = 60):
+        self.api_key = api_key
+        self.base_threshold = threshold
+        self.available = bool(api_key)
+        self.total_calls = 0
+        self.flagged_count = 0
+        self.errors = 0
+        self.rate_limited_skips = 0
+        self.client = None
+        
+        # Rate limiting
+        self.requests_per_minute = requests_per_minute
+        self.request_times = []
+        
+        if self.available:
+            try:
+                from googleapiclient import discovery
+                self.client = discovery.build(
+                    "commentanalyzer",
+                    "v1alpha1",
+                    developerKey=api_key,
+                    discoveryServiceUrl=self.DISCOVERY_URL,
+                    static_discovery=False,
+                )
+                logging.info(f"Perspective API enabled (threshold={threshold}, rate_limit={requests_per_minute}/min)")
+            except ImportError:
+                logging.warning("Google API client not installed. Run: pip install google-api-python-client")
+                self.available = False
+            except Exception as e:
+                logging.warning(f"Failed to initialize Perspective API client: {e}")
+                self.available = False
+        else:
+            logging.info("Perspective API not configured (no PERSPECTIVE_API_KEY)")
+    
+    def _check_rate_limit(self) -> bool:
+        """Check if we're within rate limits. Returns True if OK to proceed."""
+        now = time.time()
+        # Remove requests older than 1 minute
+        self.request_times = [t for t in self.request_times if now - t < 60]
+        
+        if len(self.request_times) >= self.requests_per_minute:
+            return False
+        
+        self.request_times.append(now)
+        return True
+    
+    def check_toxicity(self, text: str) -> Tuple[bool, float, Dict[str, float]]:
+        """
+        Check text for toxicity using Perspective API.
+        
+        Returns:
+            (is_flagged, max_score, all_scores)
+            - is_flagged: True if any category exceeds its threshold
+            - max_score: Highest score across all categories
+            - all_scores: Dict of category -> score
+        """
+        if not self.available or not self.client:
+            return False, 0.0, {}
+        
+        # Check rate limit before making request
+        if not self._check_rate_limit():
+            self.rate_limited_skips += 1
+            if self.rate_limited_skips % 10 == 1:
+                logging.debug(f"Perspective API rate limited, skipping (total skips: {self.rate_limited_skips})")
+            return False, 0.0, {}
+        
+        try:
+            self.total_calls += 1
+            
+            # Build request with all attributes
+            analyze_request = {
+                'comment': {'text': text[:20480]},  # API limit ~20KB
+                'requestedAttributes': {attr: {} for attr in self.DEFAULT_THRESHOLDS.keys()},
+                'doNotStore': True,  # Don't store for training
+            }
+            
+            response = self.client.comments().analyze(body=analyze_request).execute()
+            
+            # Extract scores
+            scores = {}
+            triggered_categories = []
+            
+            for attr, data in response.get('attributeScores', {}).items():
+                score = data.get('summaryScore', {}).get('value', 0.0)
+                scores[attr] = score
+                threshold = self.DEFAULT_THRESHOLDS.get(attr, self.base_threshold)
+                
+                if score >= threshold:
+                    triggered_categories.append(f"{attr}={score:.2f}")
+            
+            max_score = max(scores.values()) if scores else 0.0
+            is_flagged = len(triggered_categories) > 0
+            
+            if is_flagged:
+                self.flagged_count += 1
+                logging.debug(f"Perspective API flagged ({', '.join(triggered_categories)}): {text[:50]}...")
+            
+            return is_flagged, max_score, scores
+            
+        except Exception as e:
+            logging.warning(f"Perspective API error: {e}")
+            self.errors += 1
+            return False, 0.0, {}
+
+
 # ============================================
 # 7. SMART PRE-FILTER CLASS
 # ============================================
@@ -1159,17 +1324,38 @@ class SmartPreFilter:
         self.model = None
         self.available = False
         self.openai_mod_client = None
+        self.perspective_client = None
         
         # Initialize OpenAI Moderation client if enabled
         if config.openai_moderation_enabled and config.openai_moderation_key:
             self.openai_mod_client = OpenAIModerationClient(
                 api_key=config.openai_moderation_key,
-                threshold=config.openai_moderation_threshold
+                threshold=config.openai_moderation_threshold,
+                requests_per_minute=config.openai_moderation_rpm
             )
             logging.info(f"OpenAI Moderation mode: {config.openai_moderation_mode}")
         
-        # Initialize Detoxify (skip if OpenAI moderation mode is "only")
-        if config.openai_moderation_mode != "only":
+        # Initialize Perspective API client if enabled
+        if config.perspective_enabled and config.perspective_api_key:
+            self.perspective_client = PerspectiveAPIClient(
+                api_key=config.perspective_api_key,
+                threshold=config.perspective_threshold,
+                requests_per_minute=config.perspective_rpm
+            )
+            logging.info(f"Perspective API mode: {config.perspective_mode}")
+        
+        # Determine if we should skip Detoxify
+        # Skip only if BOTH APIs are in "only" mode, or if one is "only" and the other is disabled
+        skip_detoxify = False
+        if config.openai_moderation_mode == "only" and config.openai_moderation_enabled:
+            if not config.perspective_enabled or config.perspective_mode == "only":
+                skip_detoxify = True
+        if config.perspective_mode == "only" and config.perspective_enabled:
+            if not config.openai_moderation_enabled or config.openai_moderation_mode == "only":
+                skip_detoxify = True
+        
+        # Initialize Detoxify (unless we're skipping it)
+        if not skip_detoxify:
             try:
                 from detoxify import Detoxify
                 logging.info(f"Loading Detoxify model '{config.detoxify_model}'...")
@@ -1181,7 +1367,7 @@ class SmartPreFilter:
             except Exception as e:
                 logging.warning(f"Failed to load Detoxify: {e}. Using pattern matching only.")
         else:
-            logging.info("Detoxify disabled (OPENAI_MODERATION_MODE=only)")
+            logging.info("Detoxify disabled (external API mode=only)")
         
         # Log pattern counts
         logging.info(f"SmartPreFilter patterns: {len(SLUR_WORDS)} slur words, {len(SLUR_PHRASES)} slur phrases, "
@@ -1201,6 +1387,7 @@ class SmartPreFilter:
         self.total = 0
         self.must_escalate = 0
         self.openai_mod_flagged = 0
+        self.perspective_flagged = 0
         self.detoxify_triggered = 0
         self.benign_skipped = 0
         self.pattern_skipped = 0
@@ -1228,49 +1415,49 @@ class SmartPreFilter:
             if pattern.search(text):
                 self.must_escalate += 1
                 logging.info(f"PREFILTER | MUST_ESCALATE (regex) | '{text_preview}...'")
-                return True, 1.0, {"pattern_match": 1.0}
+                return True, 1.0, {"pattern_match": 1.0, "_trigger_reasons": "must_escalate:regex_pattern"}
         
         # Check slurs (now handles both words and phrases)
         if contains_slur(text):
             self.must_escalate += 1
             logging.info(f"PREFILTER | MUST_ESCALATE (slur) | '{text_preview}...'")
-            return True, 1.0, {"slur": 1.0}
+            return True, 1.0, {"slur": 1.0, "_trigger_reasons": "must_escalate:slur"}
         
         # Check self-harm
         if contains_self_harm(text):
             self.must_escalate += 1
             logging.info(f"PREFILTER | MUST_ESCALATE (self-harm) | '{text_preview}...'")
-            return True, 1.0, {"self_harm": 1.0}
+            return True, 1.0, {"self_harm": 1.0, "_trigger_reasons": "must_escalate:self-harm"}
         
         # Check threats
         if contains_threat(text):
             self.must_escalate += 1
             logging.info(f"PREFILTER | MUST_ESCALATE (threat) | '{text_preview}...'")
-            return True, 1.0, {"threat": 1.0}
+            return True, 1.0, {"threat": 1.0, "_trigger_reasons": "must_escalate:threat"}
         
         # Check sexual violence
         if contains_sexual_violence(text):
             self.must_escalate += 1
             logging.info(f"PREFILTER | MUST_ESCALATE (sexual violence) | '{text_preview}...'")
-            return True, 1.0, {"sexual_violence": 1.0}
+            return True, 1.0, {"sexual_violence": 1.0, "_trigger_reasons": "must_escalate:sexual_violence"}
         
         # Check brigading/harassment calls
         if contains_brigading(text):
             self.must_escalate += 1
             logging.info(f"PREFILTER | MUST_ESCALATE (brigading) | '{text_preview}...'")
-            return True, 1.0, {"brigading": 1.0}
+            return True, 1.0, {"brigading": 1.0, "_trigger_reasons": "must_escalate:brigading"}
         
         # Check violence/illegal advocacy (e.g., "shoot it down", "shine a laser")
         if contains_violence_illegal(text):
             self.must_escalate += 1
             logging.info(f"PREFILTER | MUST_ESCALATE (violence/illegal) | '{text_preview}...'")
-            return True, 1.0, {"violence_illegal": 1.0}
+            return True, 1.0, {"violence_illegal": 1.0, "_trigger_reasons": "must_escalate:violence_illegal"}
         
         # Check shill accusations (only if STRONGLY directed at someone)
         if is_strongly_directed(text) and contains_shill_accusation(text):
             self.must_escalate += 1
             logging.info(f"PREFILTER | MUST_ESCALATE (shill accusation) | '{text_preview}...'")
-            return True, 1.0, {"shill_accusation": 1.0}
+            return True, 1.0, {"shill_accusation": 1.0, "_trigger_reasons": "must_escalate:shill_accusation"}
         
         # Check dismissive/hostile - now split into hard and soft
         # Hard phrases (fuck off, eat shit) escalate on any reply
@@ -1283,13 +1470,13 @@ class SmartPreFilter:
                     self.must_escalate += 1
                     context = "directed" if is_strongly_directed(text) else "reply"
                     logging.info(f"PREFILTER | MUST_ESCALATE (dismissive_hard + {context}) | '{text_preview}...'")
-                    return True, 1.0, {"dismissive_hostile": 1.0}
+                    return True, 1.0, {"dismissive_hostile": 1.0, "_trigger_reasons": f"must_escalate:dismissive_hard+{context}"}
             else:
                 # Soft phrases: only escalate if strongly directed (not just reply)
                 if is_strongly_directed(text):
                     self.must_escalate += 1
                     logging.info(f"PREFILTER | MUST_ESCALATE (dismissive_soft + directed) | '{text_preview}...'")
-                    return True, 1.0, {"dismissive_hostile": 1.0}
+                    return True, 1.0, {"dismissive_hostile": 1.0, "_trigger_reasons": "must_escalate:dismissive_soft+directed"}
         
         # Check direct insults + strongly directed (or reply context)
         if contains_direct_insult(text):
@@ -1297,7 +1484,7 @@ class SmartPreFilter:
                 self.must_escalate += 1
                 context = "directed" if is_strongly_directed(text) else "reply"
                 logging.info(f"PREFILTER | MUST_ESCALATE (insult + {context}) | '{text_preview}...'")
-                return True, 1.0, {"direct_insult": 1.0}
+                return True, 1.0, {"direct_insult": 1.0, "_trigger_reasons": f"must_escalate:insult+{context}"}
         
         # -----------------------------------------
         # Layer 2: Benign phrase skip
@@ -1316,10 +1503,18 @@ class SmartPreFilter:
         scores = {}
         detoxify_triggered = False
         openai_mod_triggered = False
+        perspective_triggered = False
         triggered_reasons = []
         
-        # --- Run Detoxify (unless OPENAI_MODERATION_MODE=only) ---
-        if self.config.openai_moderation_mode != "only" and self.available:
+        # Determine if we should run Detoxify
+        # Skip if both external APIs are in "only" mode
+        skip_detoxify = (
+            (self.config.openai_moderation_mode == "only" and self.config.openai_moderation_enabled) or
+            (self.config.perspective_mode == "only" and self.config.perspective_enabled)
+        )
+        
+        # --- Run Detoxify (unless skipped) ---
+        if not skip_detoxify and self.available:
             try:
                 results = self.model.predict(text)
                 scores = {k: float(v) for k, v in results.items()}
@@ -1363,30 +1558,59 @@ class SmartPreFilter:
             except Exception as e:
                 logging.warning(f"Detoxify scoring failed: {e}")
                 scores = {}
-        elif self.config.openai_moderation_mode != "only" and not self.available:
+        elif not skip_detoxify and not self.available:
             # No Detoxify available - check contextual terms as fallback
             if contains_contextual_term(text) and is_strongly_directed(text):
                 detoxify_triggered = True
                 triggered_reasons.append("contextual+directed(no-detoxify)")
         
+        # --- Run External APIs based on their mode settings ---
+        # Modes: "all" = every comment, "confirm" = only if Detoxify triggers, "only" = skip Detoxify
+        
+        # Helper to determine if we should call an API
+        def should_call_api(mode: str) -> bool:
+            if mode == "all":
+                return True
+            elif mode == "confirm":
+                return detoxify_triggered or not self.available
+            elif mode == "only":
+                return True
+            return False
+        
         # --- Run OpenAI Moderation (if enabled) ---
         if self.openai_mod_client and self.openai_mod_client.available:
-            is_flagged, max_mod_score, mod_scores = self.openai_mod_client.check_toxicity(text)
-            
-            # Add OpenAI scores to our scores dict with prefix
-            for cat, score in mod_scores.items():
-                scores[f"openai_{cat}"] = score
-            
-            if is_flagged:
-                openai_mod_triggered = True
-                self.openai_mod_flagged += 1
-                # Find which categories triggered
-                triggered_cats = [f"{k}={v:.2f}" for k, v in mod_scores.items() 
-                                 if v >= self.openai_mod_client.DEFAULT_THRESHOLDS.get(k, 0.5)]
-                triggered_reasons.append(f"openai:{','.join(triggered_cats[:3])}")  # Limit to top 3
+            if should_call_api(self.config.openai_moderation_mode):
+                is_flagged, max_mod_score, mod_scores = self.openai_mod_client.check_toxicity(text)
+                
+                # Add OpenAI scores to our scores dict with prefix
+                for cat, score in mod_scores.items():
+                    scores[f"openai_{cat}"] = score
+                
+                if is_flagged:
+                    openai_mod_triggered = True
+                    self.openai_mod_flagged += 1
+                    triggered_cats = [f"{k}={v:.2f}" for k, v in mod_scores.items() 
+                                     if v >= self.openai_mod_client.DEFAULT_THRESHOLDS.get(k, 0.5)]
+                    triggered_reasons.append(f"openai:{','.join(triggered_cats[:3])}")
         
-        # --- Decision: Send to AI if either triggered ---
-        if detoxify_triggered or openai_mod_triggered:
+        # --- Run Perspective API (if enabled) ---
+        if self.perspective_client and self.perspective_client.available:
+            if should_call_api(self.config.perspective_mode):
+                is_flagged, max_persp_score, persp_scores = self.perspective_client.check_toxicity(text)
+                
+                # Add Perspective scores to our scores dict with prefix
+                for cat, score in persp_scores.items():
+                    scores[f"perspective_{cat}"] = score
+                
+                if is_flagged:
+                    perspective_triggered = True
+                    self.perspective_flagged += 1
+                    triggered_cats = [f"{k}={v:.2f}" for k, v in persp_scores.items() 
+                                     if v >= self.perspective_client.DEFAULT_THRESHOLDS.get(k, 0.7)]
+                    triggered_reasons.append(f"perspective:{','.join(triggered_cats[:3])}")
+        
+        # --- Decision: Send to AI if any triggered ---
+        if detoxify_triggered or openai_mod_triggered or perspective_triggered:
             if detoxify_triggered:
                 self.detoxify_triggered += 1
             
@@ -1397,10 +1621,13 @@ class SmartPreFilter:
             top_level_str = "top-level" if is_top_level else "reply"
             triggers = " + ".join(triggered_reasons)
             
+            # Add trigger reasons to scores for Discord notification
+            scores["_trigger_reasons"] = triggers
+            
             logging.info(f"PREFILTER | SEND ({triggers}) [{directed_str}, {top_level_str}] | '{text_preview}...'")
             return True, max_score, scores
         
-        # --- Neither triggered: SKIP ---
+        # --- None triggered: SKIP ---
         self.pattern_skipped += 1
         
         if scores:
@@ -1418,15 +1645,16 @@ class SmartPreFilter:
         if self.total == 0:
             return "No comments processed yet"
         
-        sent = self.must_escalate + self.detoxify_triggered + self.openai_mod_flagged
+        sent = self.must_escalate + self.detoxify_triggered + self.openai_mod_flagged + self.perspective_flagged
         skipped = self.benign_skipped + self.pattern_skipped
         pct_skipped = (skipped / self.total) * 100
         
-        openai_str = f", openai_mod: {self.openai_mod_flagged}" if self.openai_mod_client else ""
+        openai_str = f", openai: {self.openai_mod_flagged}" if self.openai_mod_client else ""
+        perspective_str = f", perspective: {self.perspective_flagged}" if self.perspective_client else ""
         
         return (
             f"Total: {self.total} | "
-            f"Sent to LLM: {sent} (must_escalate: {self.must_escalate}, detoxify: {self.detoxify_triggered}{openai_str}) | "
+            f"Sent to LLM: {sent} (must_escalate: {self.must_escalate}, detoxify: {self.detoxify_triggered}{openai_str}{perspective_str}) | "
             f"Skipped: {skipped} ({pct_skipped:.1f}%)"
         )
 
@@ -2007,7 +2235,8 @@ def notify_discord_report(webhook: str, comment_text: str, permalink: str,
 
 
 def notify_discord_llm_analysis(webhook: str, comment_text: str, permalink: str,
-                                 detoxify_score: float, subreddit: str) -> None:
+                                 detoxify_score: float, subreddit: str,
+                                 trigger_reasons: str = None) -> None:
     """Send a Discord notification when a comment is sent to LLM for analysis"""
     if not webhook:
         return
@@ -2017,8 +2246,14 @@ def notify_discord_llm_analysis(webhook: str, comment_text: str, permalink: str,
     
     fields = [
         {"name": "Subreddit", "value": f"r/{subreddit}", "inline": True},
-        {"name": "Detoxify Score", "value": f"{detoxify_score:.2f}", "inline": True},
+        {"name": "Max Score", "value": f"{detoxify_score:.2f}", "inline": True},
     ]
+    
+    # Add trigger reasons if available
+    if trigger_reasons:
+        # Truncate if too long for Discord field
+        reasons_display = trigger_reasons[:200] + "..." if len(trigger_reasons) > 200 else trigger_reasons
+        fields.append({"name": "Triggered By", "value": f"`{reasons_display}`", "inline": False})
     
     post_discord_embed(
         webhook=webhook,
@@ -2400,12 +2635,15 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
     
     # Discord notification for sending to LLM
     if cfg.discord_webhook:
+        # Extract trigger reasons from scores dict
+        trigger_reasons = detox_scores.get("_trigger_reasons", None)
         notify_discord_llm_analysis(
             webhook=cfg.discord_webhook,
             comment_text=text,
             permalink=permalink,
             detoxify_score=detox_score,
-            subreddit=subreddit_name
+            subreddit=subreddit_name,
+            trigger_reasons=trigger_reasons
         )
     
     result = analyzer.analyze(text, subreddit_name, parent_ctx, detox_score, is_top_level, post_title)
