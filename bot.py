@@ -2024,7 +2024,7 @@ class LLMAnalyzer:
             user_prompt += f"Post title: \"{post_title}\"\n"
         
         if parent_context:
-            user_prompt += f"Parent context: {parent_context[:300]}\n"
+            user_prompt += f"Parent context: {parent_context[:1000]}\n"
         
         user_prompt += f"\nAnalyze this comment:\n\n{text}"
 
@@ -2716,17 +2716,17 @@ def get_parent_context(thing) -> Tuple[str, str]:
             submission = thing.submission
             post_title = getattr(submission, 'title', '') or ''
         
-        # Get immediate parent context
+        # Get immediate parent context (keep more for better analysis)
         if hasattr(thing, 'parent'):
             parent = thing.parent()
             if hasattr(parent, 'body'):
-                # Parent is a comment
-                parent_context = parent.body[:500]
+                # Parent is a comment - keep up to 1000 chars for context
+                parent_context = parent.body[:1000]
             elif hasattr(parent, 'title'):
                 # Parent is the submission itself
                 selftext = getattr(parent, 'selftext', '') or ""
                 if selftext:
-                    parent_context = selftext[:500]
+                    parent_context = selftext[:1000]
     except Exception:
         pass
     
