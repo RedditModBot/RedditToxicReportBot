@@ -605,6 +605,8 @@ def build_insult_sets() -> Tuple[set, set]:
     """
     insult_words = set()
     insult_phrases = set()
+    
+    # Load from insults_direct
     insults_data = PATTERNS.get("insults_direct", {})
     for category, words in insults_data.items():
         if category.startswith("_"):
@@ -616,6 +618,20 @@ def build_insult_sets() -> Tuple[set, set]:
                     insult_phrases.add(w_lower)
                 else:
                     insult_words.add(w_lower)
+    
+    # Also load from profanity_insults (vulgar insults, crude anatomical)
+    profanity_data = PATTERNS.get("profanity_insults", {})
+    for category, words in profanity_data.items():
+        if category.startswith("_"):
+            continue
+        if isinstance(words, list):
+            for w in words:
+                w_lower = w.lower()
+                if ' ' in w_lower:
+                    insult_phrases.add(w_lower)
+                else:
+                    insult_words.add(w_lower)
+    
     return insult_words, insult_phrases
 
 def build_benign_phrases_set() -> set:
