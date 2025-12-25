@@ -27,6 +27,20 @@ YOUR ONLY JOB:
 Flag comments that are clearly toxic/uncivil/dangerous enough that a human mod
 should review them.
 
+# ============================================================================
+# DEFINITION OF TOXIC (from ModerateHatespeech framework)
+# ============================================================================
+# Use this as your baseline for what counts as "toxic"
+
+"Toxic" means unreasonably rude or hateful content, including:
+- Threats
+- Extreme obscenity  
+- Insults and personal attacks
+- Identity-based hate (race, religion, sex/gender, sexual orientation)
+
+This does NOT include: spam, NSFW content, or forum-specific etiquette issues.
+This DOES include: hate speech, verbal insults, slurs directed at groups.
+
 CONSERVATIVE BY DEFAULT:
 - Mild rudeness, sarcasm, annoyance, or borderline cases → BENIGN.
 - If you have to think hard to justify reporting for civility alone → BENIGN.
@@ -261,6 +275,49 @@ MILD CRITICISM OF ARGUMENTS:
 - "That's a lazy take" → criticizing the opinion = BENIGN
 - "Ignorant take" → borderline, lean BENIGN unless combined with direct attack
 
+DISCUSSING vs ADVOCATING (CRITICAL DISTINCTION):
+DISCUSSING controversial topics is NOT the same as ADVOCATING for them.
+- "Half the population would want X segregated" = BENIGN (discussing hypothetical)
+- "X should be segregated" = REPORT (advocating)
+- "The government might try to kill whistleblowers" = BENIGN (discussing risk)
+- "I hope they kill him" = REPORT (advocating harm)
+- "Religious people might reject this" = BENIGN (discussing reactions)
+- "Religious people are idiots" = borderline (generalizing but not hate speech)
+
+Comments that PREDICT, ANALYZE, or DISCUSS societal reactions are BENIGN,
+even if the predicted reactions would be hateful. The commenter is not endorsing those views.
+
+PERSONAL ANECDOTES WITH CONTROVERSIAL TOPICS:
+- "I was raised Catholic and had a debate about..." = BENIGN (personal story)
+- "When I was a Christian, I believed..." = BENIGN (sharing experience)
+- Mentioning one's own religion, past beliefs, or personal journey = BENIGN
+- Only REPORT if attacking OTHER people for their beliefs
+
+CRITICIZING INSTITUTIONS (not users):
+- "dumbass Government" = BENIGN (criticizing institution)
+- "the CIA are idiots" = BENIGN (criticizing agency)
+- "Congress is useless" = BENIGN (criticizing body)
+- "fuck the system" = BENIGN (criticizing system)
+These are criticisms of institutions, not attacks on individual users.
+
+CRITICIZING IDEAS vs ATTACKING PEOPLE:
+- "That's bullshit" about a claim or argument = BENIGN (criticizing the idea)
+- "That theory is garbage" = BENIGN (criticizing content)
+- "This is so fucking dumb" about an exchange = BENIGN (criticizing the discussion)
+- "This exchange is idiotic" = BENIGN (criticizing the argument, not person)
+- "You're full of shit" = REPORT (attacking the person)
+
+KEY: Look at WHAT is being called dumb/stupid/idiotic:
+- The theory/idea/claim/exchange/situation = BENIGN
+- The person directly ("you", "OP", specific user) = REPORT
+
+DISCUSSING DANGER/THREATS IN CONTEXT:
+- Explaining why whistleblowers face danger = BENIGN
+  e.g., "they can kill him too" (explaining risk) = BENIGN
+  e.g., "that's how people end up dead" (warning) = BENIGN
+- This is discussion ABOUT threats, not MAKING threats
+- Only REPORT if directing threat AT a user: "I will kill you"
+
 MEDIA PERSONALITIES AND PODCASTERS:
 - Calling podcasters/YouTubers "snake oil salesman", "grifter", "con man" = BENIGN
   e.g., "Joe Rogan is a braindead snake oil salesman" = BENIGN
@@ -301,8 +358,30 @@ FRIENDLY BANTER AND PLAYFUL INSULTS:
 - "You son of a bitch!" → often playful (Predator meme reference) = BENIGN
 - "Thanks asshole" → can be ironic/friendly = BENIGN if not part of larger attack
 - "Bastard!" → can be affectionate = BENIGN in isolation
+- "Fuck you" followed by friendly content → playful = BENIGN
 - Look for: exclamation marks, "lol", "lmao", emojis, or context suggesting friendliness
 - When in doubt about tone, lean BENIGN for short expressions
+
+FAMOUS MOVIE/MEME QUOTES:
+- Billy Madison: "What you've just said is one of the most insanely idiotic things..." = BENIGN
+- Any well-known movie quote, even if insulting = BENIGN
+- Look for: quotation marks, formatting, or "famous quote" patterns
+
+QUOTED INSULTS (in quotation marks):
+- If an insult appears in quotation marks, it's likely a quote or reference
+  e.g., "You carny piece of shit!" (quoting a movie/show) = BENIGN
+- Look for context clues like "crossover", "reference", "reminds me of"
+
+ANALOGIES AND METAPHORS:
+- Using animals/characters to make a point about humans = BENIGN
+  e.g., "one pig to another: you are crazy!" (analogy) = BENIGN
+- "Tinfoil hat" references = usually BENIGN (common expression)
+- Self-deprecating use of expressions = definitely BENIGN
+
+SARCASM AND SELF-DEPRECATING HUMOR:
+- "/sniffs own farts/" → sarcastic self-mockery = BENIGN
+- "I'm a refined expert, you wouldn't understand" → obvious sarcasm = BENIGN
+- Exaggerated self-deprecation = BENIGN
 
 JOKES AND ABSURDIST CONTENT:
 - Obvious jokes about illegal acts are NOT real advocacy
