@@ -1386,9 +1386,10 @@ class SmartPreFilter:
         # Stats
         self.total = 0
         self.must_escalate = 0
-        self.openai_mod_flagged = 0
-        self.perspective_flagged = 0
-        self.detoxify_triggered = 0
+        self.ml_sent = 0  # Comments sent due to ML layer (not double-counted)
+        self.openai_mod_flagged = 0  # Times OpenAI flagged (can overlap with others)
+        self.perspective_flagged = 0  # Times Perspective flagged (can overlap with others)
+        self.detoxify_triggered = 0  # Times Detoxify triggered (can overlap with others)
         self.benign_skipped = 0
         self.pattern_skipped = 0
     
@@ -1496,8 +1497,8 @@ class SmartPreFilter:
             return False, 0.0, {"benign": 1.0}
         
         # -----------------------------------------
-        # Layer 3: ML Scoring (Detoxify + OpenAI Moderation)
-        # Both run on every comment, either triggering sends to AI
+        # Layer 3: ML Scoring (Detoxify + External APIs)
+        # Run based on mode settings, any triggering sends to AI
         # -----------------------------------------
         
         scores = {}
@@ -1611,6 +1612,7 @@ class SmartPreFilter:
         
         # --- Decision: Send to AI if any triggered ---
         if detoxify_triggered or openai_mod_triggered or perspective_triggered:
+            # Count detoxify triggers (for consistency with openai/perspective counters)
             if detoxify_triggered:
                 self.detoxify_triggered += 1
             
@@ -1623,6 +1625,9 @@ class SmartPreFilter:
             
             # Add trigger reasons to scores for Discord notification
             scores["_trigger_reasons"] = triggers
+            
+            # Track total ML-layer sends (not double-counted)
+            self.ml_sent += 1
             
             logging.info(f"PREFILTER | SEND ({triggers}) [{directed_str}, {top_level_str}] | '{text_preview}...'")
             return True, max_score, scores
@@ -1645,16 +1650,25 @@ class SmartPreFilter:
         if self.total == 0:
             return "No comments processed yet"
         
-        sent = self.must_escalate + self.detoxify_triggered + self.openai_mod_flagged + self.perspective_flagged
+        # Actual comments sent to LLM
+        sent = self.must_escalate + self.ml_sent
         skipped = self.benign_skipped + self.pattern_skipped
-        pct_skipped = (skipped / self.total) * 100
+        pct_skipped = (skipped / self.total) * 100 if self.total > 0 else 0
         
-        openai_str = f", openai: {self.openai_mod_flagged}" if self.openai_mod_client else ""
-        perspective_str = f", perspective: {self.perspective_flagged}" if self.perspective_client else ""
+        # Build detailed breakdown of what triggered (can overlap)
+        ml_details = []
+        if self.detoxify_triggered > 0:
+            ml_details.append(f"detoxify:{self.detoxify_triggered}")
+        if self.openai_mod_flagged > 0:
+            ml_details.append(f"openai:{self.openai_mod_flagged}")
+        if self.perspective_flagged > 0:
+            ml_details.append(f"perspective:{self.perspective_flagged}")
+        
+        ml_str = f", triggers: {'+'.join(ml_details)}" if ml_details else ""
         
         return (
             f"Total: {self.total} | "
-            f"Sent to LLM: {sent} (must_escalate: {self.must_escalate}, detoxify: {self.detoxify_triggered}{openai_str}{perspective_str}) | "
+            f"Sent to LLM: {sent} (must_escalate: {self.must_escalate}, ml: {self.ml_sent}{ml_str}) | "
             f"Skipped: {skipped} ({pct_skipped:.1f}%)"
         )
 
