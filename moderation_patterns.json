@@ -147,7 +147,7 @@
     "disability_context": ["spaz", "spastic", "special needs", "short bus"],
     "religion_mocking": ["sky fairy", "sky daddy"],
     "ufo_ambiguous": ["fake", "fakes"],
-    "ambiguous_insults": ["thick", "tool", "joke", "dense", "freak", "freaks", "creep", "creeps", "fraud", "frauds"],
+    "ambiguous_insults": ["thick", "tool", "joke", "dense", "freak", "freaks", "creep", "creeps", "fraud", "frauds", "stupid", "dumb", "jerk"],
     
     "extremism_references": [
       "neo nazi", "neonazi", "white power", "whitepower", "swastika",
@@ -306,7 +306,7 @@
   "insults_direct": {
     "_comment": "Direct insults targeting users - escalate when directedness is detected",
     "intelligence": [
-      "idiot", "idiots", "stupid", "dumb", "dumbass", "dumbfuck", "dumass", "dumbshit",
+      "idiot", "idiots", "dumbass", "dumbfuck", "dumass", "dumbshit",
       "moron", "moronic", "imbecile",
       "brainless", "braindead", "brain dead",
       "smooth brain", "smoothbrain",
@@ -435,9 +435,11 @@
     "frustration_exclamations": [
       "fuck it", "screw it", "fuck this", "fuck that",
       "fuck me", "fml", "fuck my life",
-      "oh shit", "no shit", "the shit", "this shit", "that shit", "aw shit", "ah shit",
+      "oh shit", "no shit", "no fucking shit", "no freaking shit",
+      "the shit", "this shit", "that shit", "aw shit", "ah shit",
       "all this shit", "all that shit", "same shit", "good shit", "cool shit",
       "crazy shit", "wild shit", "weird shit", "real shit", "serious shit", "deep shit", "random shit",
+      "some shit", "any shit", "old shit", "new shit",
       "this crap", "that crap", "all this crap", "load of crap", "bunch of crap",
       "wtf", "wth",
       "for fuck's sake", "for fucks sake", "ffs",
@@ -446,13 +448,14 @@
       "jesus christ", "jesus fucking christ", "christ almighty",
       "damn it", "dammit", "goddamn", "god damn it", "goddammit",
       "a goddamn", "another goddamn", "always a goddamn",
-      "damn thing", "damn well",
-      "oh my god", "omg", "omfg", "oh my fucking god",
+      "damn thing", "damn well", "oh damn",
+      "omg", "omfg", "oh my fucking god",
       "son of a bitch", "bloody hell", "what the bloody hell",
       "fuck knows", "god knows", "who knows", "who the fuck knows",
       "christ knows", "heaven knows", "lord knows",
       "who the fuck", "where the fuck", "how the fuck", "why the fuck",
       "who the hell", "where the hell", "how the hell", "why the hell",
+      "the hell is that", "the hell is this", "what the hell is",
       "hell of a", "the hell out"
     ],
 
@@ -460,17 +463,19 @@
       "deadass", "dead ass", "no cap", "on god", "fr fr", "frfr",
       "fuck all", "know fuck all", "knows fuck all", "dont know fuck all",
       "type shit", "type of shit", "and shit", "or some shit",
+      "some evangelion shit", "some anime shit", "some sci-fi shit", "some weird shit",
       "blah blah", "blah blah blah",
       "full of shit", "full of crap",
       "out of his ass", "out of their ass", "out of her ass", "out of my ass",
       "up my ass", "pain in the ass", "kick ass", "bad ass", "badass",
-      "fake and gay", "big if true", "inb4", "copium", "hopium"
+      "fake and gay", "big if true", "inb4", "copium", "hopium",
+      "no biggie", "just rocks", "fucking rocks"
     ],
 
     "profanity_as_emphasis": [
       "is fucking", "so fucking", "really fucking", "pretty fucking",
       "absolutely fucking", "completely fucking", "totally fucking",
-      "fucking ridiculous", "fucking stupid", "fucking insane",
+      "fucking ridiculous", "fucking insane",
       "fucking annoying", "fucking horrible", "fucking terrible", "fucking awful",
       "fucking amazing", "fucking incredible", "fucking awesome",
       "fucking hilarious", "fucking funny", "fucking crazy", "fucking wild",
@@ -503,12 +508,16 @@
       "that's bullshit", "complete bullshit", "utter bullshit", "pure bullshit",
       "load of bullshit", "bunch of bullshit",
       "tough shit", "tough luck",
-      "horse shit", "horseshit", "load of horseshit",
+      "horse shit", "horseshit", "load of horseshit", "pure horseshit",
       "nothing burger", "nothingburger",
       "un-fucking-believable", "unfuckingbelievable", "abso-fucking-lutely",
       "same bullshit", "more bullshit", "all bullshit", "just bullshit",
       "obvious bullshit", "typical bullshit", "usual bullshit",
-      "potential bullshit", "recycled bullshit", "new age bullshit"
+      "potential bullshit", "recycled bullshit", "new age bullshit",
+      "so stupid", "so dumb", "this is stupid", "this is dumb", "that's stupid", "that's dumb",
+      "how stupid", "how dumb", "something stupid", "anything stupid",
+      "sounds stupid", "looks stupid", "seems stupid", "is so stupid", "is stupid",
+      "i'm just dumb", "im just dumb", "i am dumb", "maybe i'm dumb", "maybe im dumb"
     ]
   },
 
@@ -600,9 +609,19 @@
       "you get what", "you see what", "you see how", "you see why",
       "when you think", "when you look", "when you see", "when you consider", "when you read",
       "if you think", "if you look", "if you ask", "if you want", "if you believe", "if you read",
+      "if you seen", "if you have", "if you had", "if you were", "if you are",
       "once you", "before you", "after you", "until you",
       "makes you think", "makes you wonder", "gets you thinking",
-      "whether you", "wherever you", "however you", "whatever you"
+      "whether you", "wherever you", "however you", "whatever you",
+      "you can't throw", "you can't walk", "you can't go", "you can't turn", "you can't swing",
+      "you can't help", "you can't blame", "you can't deny", "you can't ignore",
+      "you can't see", "you can't hear", "you can't tell", "you can't know", "you can't prove",
+      "you can't expect", "you can't trust", "you can't believe", "you can't imagine",
+      "would you", "do you think", "don't you think", "wouldn't you",
+      "you would think", "you would expect", "you would assume",
+      "you might", "you may", "you probably",
+      "i agree with you", "i believe you", "agree with you", "believe you",
+      "thank you", "thanks for", "glad you", "happy you"
     ],
 
     "_comment2": "If you want obfuscated slur matching without listing variants, generate regex from the term list using a joiner like \\W* between letters."
