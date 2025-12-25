@@ -32,7 +32,6 @@ from openai import OpenAI  # For x.ai Grok API (OpenAI-compatible)
 
 # -------- discord optional --------
 import urllib.request
-import requests  # For MHS API
 
 
 # -------------------------------
@@ -294,11 +293,11 @@ class Config:
     # Detoxify pre-filter
     detoxify_model: str        # "original" or "unbiased"
     
-    # ModerateHatespeech API (optional, alternative/supplement to Detoxify)
-    mhs_api_key: str           # API key for moderatehatespeech.com
-    mhs_enabled: bool          # Whether to use MHS API
-    mhs_threshold: float       # Confidence threshold (0.5-1.0), recommend 0.9+
-    mhs_mode: str              # "primary", "secondary", or "only"
+    # OpenAI Moderation API (optional, free supplement to Detoxify)
+    openai_moderation_key: str      # API key for OpenAI (also used for moderation)
+    openai_moderation_enabled: bool # Whether to use OpenAI Moderation API
+    openai_moderation_threshold: float  # Base threshold (0.0-1.0)
+    openai_moderation_mode: str     # "both" or "only"
     
     # Detoxify thresholds per label
     threshold_threat: float
@@ -380,11 +379,11 @@ def load_config() -> Config:
         
         detoxify_model=os.getenv("DETOXIFY_MODEL", "original"),
         
-        # ModerateHatespeech API settings
-        mhs_api_key=os.getenv("MHS_API_KEY", ""),
-        mhs_enabled=os.getenv("MHS_ENABLED", "false").lower() == "true",
-        mhs_threshold=float(os.getenv("MHS_THRESHOLD", "0.90")),
-        mhs_mode=os.getenv("MHS_MODE", "both"),  # "both" or "only"
+        # OpenAI Moderation API settings
+        openai_moderation_key=os.getenv("OPENAI_API_KEY", ""),  # Reuse same key as for other OpenAI
+        openai_moderation_enabled=os.getenv("OPENAI_MODERATION_ENABLED", "false").lower() == "true",
+        openai_moderation_threshold=float(os.getenv("OPENAI_MODERATION_THRESHOLD", "0.50")),
+        openai_moderation_mode=os.getenv("OPENAI_MODERATION_MODE", "both"),  # "both" or "only"
         
         # Per-label thresholds (lower = more sensitive)
         threshold_threat=float(os.getenv("THRESHOLD_THREAT", "0.15")),
@@ -1037,123 +1036,101 @@ def is_benign_exclamation(text: str) -> bool:
 
 
 # ============================================
-# 6. MODERATEHATESPEECH API CLIENT
+# 6. OPENAI MODERATION API CLIENT
 # ============================================
 
-class ModerateHatespeechClient:
+class OpenAIModerationClient:
     """
-    Client for ModerateHatespeech.com API.
-    A RoBERTa-based toxicity classifier with 98% accuracy, specifically trained for Reddit.
+    Client for OpenAI's free Moderation API.
+    Detects: hate, harassment, self-harm, sexual, violence (with sub-categories).
     """
     
-    API_URL = "https://api.moderatehatespeech.com/api/v1/moderate/"
-    REPORT_URL = "https://api.moderatehatespeech.com/api/v1/report/"
+    # Categories and their thresholds for flagging
+    DEFAULT_THRESHOLDS = {
+        'hate': 0.5,
+        'hate/threatening': 0.5,
+        'harassment': 0.5,
+        'harassment/threatening': 0.5,
+        'self-harm': 0.3,  # Lower threshold for safety
+        'self-harm/intent': 0.3,
+        'self-harm/instructions': 0.3,
+        'sexual': 0.8,  # Higher - less relevant for Reddit moderation
+        'sexual/minors': 0.1,  # Very low - always flag
+        'violence': 0.7,
+        'violence/graphic': 0.7,
+    }
     
-    def __init__(self, api_key: str, threshold: float = 0.90):
+    def __init__(self, api_key: str, threshold: float = 0.5):
         self.api_key = api_key
-        self.threshold = threshold
+        self.base_threshold = threshold
         self.available = bool(api_key)
         self.total_calls = 0
         self.flagged_count = 0
         self.errors = 0
+        self.client = None
         
         if self.available:
-            logging.info(f"ModerateHatespeech API enabled (threshold={threshold})")
+            try:
+                from openai import OpenAI
+                self.client = OpenAI(api_key=api_key)
+                logging.info(f"OpenAI Moderation API enabled (base threshold={threshold})")
+            except ImportError:
+                logging.warning("OpenAI library not installed. Run: pip install openai")
+                self.available = False
+            except Exception as e:
+                logging.warning(f"Failed to initialize OpenAI client: {e}")
+                self.available = False
         else:
-            logging.info("ModerateHatespeech API not configured (no MHS_API_KEY)")
+            logging.info("OpenAI Moderation API not configured (no OPENAI_API_KEY)")
     
-    def check_toxicity(self, text: str) -> Tuple[bool, float, str]:
+    def check_toxicity(self, text: str) -> Tuple[bool, float, Dict[str, float]]:
         """
-        Check text for toxicity using ModerateHatespeech API.
+        Check text for toxicity using OpenAI Moderation API.
         
         Returns:
-            (is_toxic, confidence, class_label)
-            - is_toxic: True if flagged AND confidence >= threshold
-            - confidence: 0.5-1.0 score
-            - class_label: "flag" or "normal"
+            (is_flagged, max_score, all_scores)
+            - is_flagged: True if any category exceeds its threshold
+            - max_score: Highest score across all categories
+            - all_scores: Dict of category -> score
         """
-        if not self.available:
-            return False, 0.0, "unavailable"
+        if not self.available or not self.client:
+            return False, 0.0, {}
         
         try:
             self.total_calls += 1
             
-            response = requests.post(
-                self.API_URL,
-                json={"token": self.api_key, "text": text[:5000]},  # API may have limit
-                headers={"Content-Type": "application/json"},
-                timeout=10
+            # Call OpenAI Moderation API
+            response = self.client.moderations.create(
+                model="omni-moderation-latest",
+                input=text[:32000]  # API limit
             )
             
-            if response.status_code != 200:
-                logging.warning(f"MHS API error: {response.status_code}")
-                self.errors += 1
-                return False, 0.0, "error"
+            result = response.results[0]
             
-            data = response.json()
+            # Extract scores
+            scores = {}
+            triggered_categories = []
             
-            if data.get("response") != "Success":
-                logging.warning(f"MHS API response: {data.get('response')}")
-                self.errors += 1
-                return False, 0.0, "error"
+            for category, score in result.category_scores.model_dump().items():
+                scores[category] = score
+                threshold = self.DEFAULT_THRESHOLDS.get(category, self.base_threshold)
+                
+                if score >= threshold:
+                    triggered_categories.append(f"{category}={score:.2f}")
             
-            class_label = data.get("class", "normal")
-            confidence = float(data.get("confidence", 0.5))
+            max_score = max(scores.values()) if scores else 0.0
+            is_flagged = len(triggered_categories) > 0
             
-            is_toxic = class_label == "flag" and confidence >= self.threshold
-            
-            if is_toxic:
+            if is_flagged:
                 self.flagged_count += 1
-                logging.debug(f"MHS flagged (conf={confidence:.2f}): {text[:50]}...")
+                logging.debug(f"OpenAI Moderation flagged ({', '.join(triggered_categories)}): {text[:50]}...")
             
-            return is_toxic, confidence, class_label
-            
-        except requests.exceptions.Timeout:
-            logging.warning("MHS API timeout")
-            self.errors += 1
-            return False, 0.0, "timeout"
-        except Exception as e:
-            logging.warning(f"MHS API error: {e}")
-            self.errors += 1
-            return False, 0.0, "error"
-    
-    def report_error(self, text: str, should_be_flagged: bool) -> bool:
-        """
-        Report a false positive or false negative to help improve the model.
-        
-        Args:
-            text: The comment text
-            should_be_flagged: True if it should have been flagged (false negative),
-                              False if it shouldn't have been flagged (false positive)
-        
-        Returns:
-            True if report was successful
-        """
-        if not self.available:
-            return False
-        
-        try:
-            intended = 1 if should_be_flagged else 2
-            
-            response = requests.post(
-                self.REPORT_URL,
-                json={"token": self.api_key, "text": text[:5000], "intended": intended},
-                headers={"Content-Type": "application/json"},
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("response") == "Message Logged":
-                    logging.info(f"MHS error reported successfully (should_flag={should_be_flagged})")
-                    return True
-            
-            logging.warning(f"MHS report failed: {response.status_code}")
-            return False
+            return is_flagged, max_score, scores
             
         except Exception as e:
-            logging.warning(f"MHS report error: {e}")
-            return False
+            logging.warning(f"OpenAI Moderation API error: {e}")
+            self.errors += 1
+            return False, 0.0, {}
 
 
 # ============================================
@@ -1181,18 +1158,18 @@ class SmartPreFilter:
         self.config = config
         self.model = None
         self.available = False
-        self.mhs_client = None
+        self.openai_mod_client = None
         
-        # Initialize ModerateHatespeech client if enabled
-        if config.mhs_enabled and config.mhs_api_key:
-            self.mhs_client = ModerateHatespeechClient(
-                api_key=config.mhs_api_key,
-                threshold=config.mhs_threshold
+        # Initialize OpenAI Moderation client if enabled
+        if config.openai_moderation_enabled and config.openai_moderation_key:
+            self.openai_mod_client = OpenAIModerationClient(
+                api_key=config.openai_moderation_key,
+                threshold=config.openai_moderation_threshold
             )
-            logging.info(f"MHS mode: {config.mhs_mode}")
+            logging.info(f"OpenAI Moderation mode: {config.openai_moderation_mode}")
         
-        # Initialize Detoxify (skip if MHS mode is "only")
-        if config.mhs_mode != "only":
+        # Initialize Detoxify (skip if OpenAI moderation mode is "only")
+        if config.openai_moderation_mode != "only":
             try:
                 from detoxify import Detoxify
                 logging.info(f"Loading Detoxify model '{config.detoxify_model}'...")
@@ -1204,7 +1181,7 @@ class SmartPreFilter:
             except Exception as e:
                 logging.warning(f"Failed to load Detoxify: {e}. Using pattern matching only.")
         else:
-            logging.info("Detoxify disabled (MHS_MODE=only)")
+            logging.info("Detoxify disabled (OPENAI_MODERATION_MODE=only)")
         
         # Log pattern counts
         logging.info(f"SmartPreFilter patterns: {len(SLUR_WORDS)} slur words, {len(SLUR_PHRASES)} slur phrases, "
@@ -1223,7 +1200,7 @@ class SmartPreFilter:
         # Stats
         self.total = 0
         self.must_escalate = 0
-        self.mhs_flagged = 0
+        self.openai_mod_flagged = 0
         self.detoxify_triggered = 0
         self.benign_skipped = 0
         self.pattern_skipped = 0
@@ -1332,17 +1309,17 @@ class SmartPreFilter:
             return False, 0.0, {"benign": 1.0}
         
         # -----------------------------------------
-        # Layer 3: ML Scoring (Detoxify + MHS)
+        # Layer 3: ML Scoring (Detoxify + OpenAI Moderation)
         # Both run on every comment, either triggering sends to AI
         # -----------------------------------------
         
         scores = {}
         detoxify_triggered = False
-        mhs_triggered = False
+        openai_mod_triggered = False
         triggered_reasons = []
         
-        # --- Run Detoxify (unless MHS_MODE=only) ---
-        if self.config.mhs_mode != "only" and self.available:
+        # --- Run Detoxify (unless OPENAI_MODERATION_MODE=only) ---
+        if self.config.openai_moderation_mode != "only" and self.available:
             try:
                 results = self.model.predict(text)
                 scores = {k: float(v) for k, v in results.items()}
@@ -1386,25 +1363,30 @@ class SmartPreFilter:
             except Exception as e:
                 logging.warning(f"Detoxify scoring failed: {e}")
                 scores = {}
-        elif self.config.mhs_mode != "only" and not self.available:
+        elif self.config.openai_moderation_mode != "only" and not self.available:
             # No Detoxify available - check contextual terms as fallback
             if contains_contextual_term(text) and is_strongly_directed(text):
                 detoxify_triggered = True
                 triggered_reasons.append("contextual+directed(no-detoxify)")
         
-        # --- Run MHS (if enabled) ---
-        if self.mhs_client:
-            is_toxic, confidence, class_label = self.mhs_client.check_toxicity(text)
-            scores["mhs_confidence"] = confidence
-            scores["mhs_class"] = class_label
+        # --- Run OpenAI Moderation (if enabled) ---
+        if self.openai_mod_client and self.openai_mod_client.available:
+            is_flagged, max_mod_score, mod_scores = self.openai_mod_client.check_toxicity(text)
             
-            if is_toxic:
-                mhs_triggered = True
-                self.mhs_flagged += 1
-                triggered_reasons.append(f"mhs:{confidence:.2f}")
+            # Add OpenAI scores to our scores dict with prefix
+            for cat, score in mod_scores.items():
+                scores[f"openai_{cat}"] = score
+            
+            if is_flagged:
+                openai_mod_triggered = True
+                self.openai_mod_flagged += 1
+                # Find which categories triggered
+                triggered_cats = [f"{k}={v:.2f}" for k, v in mod_scores.items() 
+                                 if v >= self.openai_mod_client.DEFAULT_THRESHOLDS.get(k, 0.5)]
+                triggered_reasons.append(f"openai:{','.join(triggered_cats[:3])}")  # Limit to top 3
         
         # --- Decision: Send to AI if either triggered ---
-        if detoxify_triggered or mhs_triggered:
+        if detoxify_triggered or openai_mod_triggered:
             if detoxify_triggered:
                 self.detoxify_triggered += 1
             
@@ -1436,15 +1418,15 @@ class SmartPreFilter:
         if self.total == 0:
             return "No comments processed yet"
         
-        sent = self.must_escalate + self.detoxify_triggered + self.mhs_flagged
+        sent = self.must_escalate + self.detoxify_triggered + self.openai_mod_flagged
         skipped = self.benign_skipped + self.pattern_skipped
         pct_skipped = (skipped / self.total) * 100
         
-        mhs_str = f", mhs: {self.mhs_flagged}" if self.mhs_client else ""
+        openai_str = f", openai_mod: {self.openai_mod_flagged}" if self.openai_mod_client else ""
         
         return (
             f"Total: {self.total} | "
-            f"Sent to LLM: {sent} (must_escalate: {self.must_escalate}, detoxify: {self.detoxify_triggered}{mhs_str}) | "
+            f"Sent to LLM: {sent} (must_escalate: {self.must_escalate}, detoxify: {self.detoxify_triggered}{openai_str}) | "
             f"Skipped: {skipped} ({pct_skipped:.1f}%)"
         )
 
