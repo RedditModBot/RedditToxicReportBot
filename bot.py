@@ -32,6 +32,7 @@ from openai import OpenAI  # For x.ai Grok API (OpenAI-compatible)
 
 # -------- discord optional --------
 import urllib.request
+import requests  # For MHS API
 
 
 # -------------------------------
@@ -383,7 +384,7 @@ def load_config() -> Config:
         mhs_api_key=os.getenv("MHS_API_KEY", ""),
         mhs_enabled=os.getenv("MHS_ENABLED", "false").lower() == "true",
         mhs_threshold=float(os.getenv("MHS_THRESHOLD", "0.90")),
-        mhs_mode=os.getenv("MHS_MODE", "secondary"),  # primary, secondary, or only
+        mhs_mode=os.getenv("MHS_MODE", "both"),  # "both" or "only"
         
         # Per-label thresholds (lower = more sensitive)
         threshold_threat=float(os.getenv("THRESHOLD_THREAT", "0.15")),
@@ -1331,123 +1332,105 @@ class SmartPreFilter:
             return False, 0.0, {"benign": 1.0}
         
         # -----------------------------------------
-        # Layer 2.5: ModerateHatespeech API (if primary mode)
+        # Layer 3: ML Scoring (Detoxify + MHS)
+        # Both run on every comment, either triggering sends to AI
         # -----------------------------------------
         
-        mhs_result = None
-        if self.mhs_client and self.config.mhs_mode == "primary":
+        scores = {}
+        detoxify_triggered = False
+        mhs_triggered = False
+        triggered_reasons = []
+        
+        # --- Run Detoxify (unless MHS_MODE=only) ---
+        if self.config.mhs_mode != "only" and self.available:
+            try:
+                results = self.model.predict(text)
+                scores = {k: float(v) for k, v in results.items()}
+                
+                # Use STRONG directedness for threshold lowering
+                is_directed = is_strongly_directed(text)
+                
+                # For replies, weak directedness might matter more
+                if not is_directed and not is_top_level and is_weakly_directed(text):
+                    is_directed = True
+                
+                # Check contextual terms - escalate if directed OR identity_attack is elevated
+                has_contextual = contains_contextual_term(text)
+                identity_attack_score = scores.get('identity_attack', 0)
+                
+                if has_contextual and (is_directed or identity_attack_score > 0.25):
+                    detoxify_triggered = True
+                    reason = "directed" if is_directed else f"identity_attack={identity_attack_score:.2f}"
+                    triggered_reasons.append(f"contextual+{reason}")
+                
+                # Thresholds per label from config
+                thresholds = {
+                    'threat': self.config.threshold_threat,
+                    'severe_toxicity': self.config.threshold_severe_toxicity,
+                    'identity_attack': self.config.threshold_identity_attack,
+                    'insult': self.config.threshold_insult_directed if is_directed else self.config.threshold_insult_not_directed,
+                    'toxicity': self.config.threshold_toxicity_directed if is_directed else self.config.threshold_toxicity_not_directed,
+                    'obscene': self.config.threshold_obscene,
+                }
+                
+                triggered_labels = []
+                for label, score in scores.items():
+                    threshold = thresholds.get(label, 0.7)
+                    if score >= threshold:
+                        triggered_labels.append(f"{label}={score:.2f}")
+                
+                if triggered_labels:
+                    detoxify_triggered = True
+                    triggered_reasons.append(f"detoxify:{','.join(triggered_labels)}")
+                    
+            except Exception as e:
+                logging.warning(f"Detoxify scoring failed: {e}")
+                scores = {}
+        elif self.config.mhs_mode != "only" and not self.available:
+            # No Detoxify available - check contextual terms as fallback
+            if contains_contextual_term(text) and is_strongly_directed(text):
+                detoxify_triggered = True
+                triggered_reasons.append("contextual+directed(no-detoxify)")
+        
+        # --- Run MHS (if enabled) ---
+        if self.mhs_client:
             is_toxic, confidence, class_label = self.mhs_client.check_toxicity(text)
-            mhs_result = (is_toxic, confidence, class_label)
+            scores["mhs_confidence"] = confidence
+            scores["mhs_class"] = class_label
             
             if is_toxic:
+                mhs_triggered = True
                 self.mhs_flagged += 1
-                logging.info(f"PREFILTER | SEND (MHS flagged: {confidence:.2f}) | '{text_preview}...'")
-                return True, confidence, {"mhs_confidence": confidence, "mhs_class": class_label}
+                triggered_reasons.append(f"mhs:{confidence:.2f}")
         
-        # -----------------------------------------
-        # Layer 3: Detoxify with smart thresholds
-        # -----------------------------------------
-        
-        # Skip Detoxify if MHS mode is "only"
-        if self.config.mhs_mode == "only":
-            if self.mhs_client:
-                if mhs_result is None:
-                    is_toxic, confidence, class_label = self.mhs_client.check_toxicity(text)
-                    mhs_result = (is_toxic, confidence, class_label)
-                
-                if mhs_result[0]:  # is_toxic
-                    self.mhs_flagged += 1
-                    logging.info(f"PREFILTER | SEND (MHS-only flagged: {mhs_result[1]:.2f}) | '{text_preview}...'")
-                    return True, mhs_result[1], {"mhs_confidence": mhs_result[1], "mhs_class": mhs_result[2]}
-                else:
-                    self.pattern_skipped += 1
-                    logging.info(f"PREFILTER | SKIP (MHS-only: {mhs_result[2]}, conf={mhs_result[1]:.2f}) | '{text_preview}...'")
-                    return False, mhs_result[1], {"mhs_confidence": mhs_result[1], "mhs_class": mhs_result[2]}
-            else:
-                logging.warning("MHS_MODE=only but no MHS client available")
-        
-        if not self.available:
-            # No Detoxify - check contextual terms with directedness as fallback
-            if contains_contextual_term(text) and is_strongly_directed(text):
-                self.must_escalate += 1
-                logging.info(f"PREFILTER | SEND (contextual + directed, no detoxify) | '{text_preview}...'")
-                return True, 0.7, {"contextual_directed": 1.0}
-            self.detoxify_triggered += 1
-            logging.info(f"PREFILTER | SEND (no detoxify) | '{text_preview}...'")
-            return True, 0.5, {}
-        
-        try:
-            results = self.model.predict(text)
-            scores = {k: float(v) for k, v in results.items()}
-            
-            # Use STRONG directedness for threshold lowering
-            # Weak directedness ("this guy") in top-level comments is often about public figures
-            is_directed = is_strongly_directed(text)
-            
-            # For top-level comments, weak directedness doesn't count
-            # For replies, weak directedness might matter more
-            if not is_directed and not is_top_level and is_weakly_directed(text):
-                # In a reply, "this guy" is more likely to mean the person being replied to
-                is_directed = True
-            
-            # Check contextual terms - escalate if directed OR identity_attack is elevated
-            has_contextual = contains_contextual_term(text)
-            identity_attack_score = scores.get('identity_attack', 0)
-            
-            if has_contextual and (is_directed or identity_attack_score > 0.25):
-                self.must_escalate += 1
-                reason = "directed" if is_directed else f"identity_attack={identity_attack_score:.2f}"
-                logging.info(f"PREFILTER | SEND (contextual term + {reason}) | '{text_preview}...'")
-                return True, max(0.7, identity_attack_score), scores
-            
-            # Thresholds per label from config (lower = more sensitive)
-            thresholds = {
-                'threat': self.config.threshold_threat,
-                'severe_toxicity': self.config.threshold_severe_toxicity,
-                'identity_attack': self.config.threshold_identity_attack,
-                'insult': self.config.threshold_insult_directed if is_directed else self.config.threshold_insult_not_directed,
-                'toxicity': self.config.threshold_toxicity_directed if is_directed else self.config.threshold_toxicity_not_directed,
-                'obscene': self.config.threshold_obscene,
-            }
-            
-            triggered_labels = []
-            for label, score in scores.items():
-                threshold = thresholds.get(label, 0.7)
-                if score >= threshold:
-                    triggered_labels.append(f"{label}={score:.2f}")
-            
-            if triggered_labels:
+        # --- Decision: Send to AI if either triggered ---
+        if detoxify_triggered or mhs_triggered:
+            if detoxify_triggered:
                 self.detoxify_triggered += 1
-                max_score = max(scores.values())
-                directed_str = "directed" if is_directed else "not directed"
-                top_level_str = "top-level" if is_top_level else "reply"
-                logging.info(f"PREFILTER | SEND (detoxify: {', '.join(triggered_labels)}) [{directed_str}, {top_level_str}] | '{text_preview}...'")
-                return True, max_score, scores
             
-            # -----------------------------------------
-            # Layer 3.5: MHS secondary check (if mode=secondary and Detoxify didn't trigger)
-            # -----------------------------------------
+            max_score = max([v for k, v in scores.items() if isinstance(v, (int, float))], default=0.5)
             
-            if self.mhs_client and self.config.mhs_mode == "secondary":
-                is_toxic, confidence, class_label = self.mhs_client.check_toxicity(text)
-                
-                if is_toxic:
-                    self.mhs_flagged += 1
-                    scores["mhs_confidence"] = confidence
-                    scores["mhs_class"] = class_label
-                    logging.info(f"PREFILTER | SEND (MHS secondary flagged: {confidence:.2f}) | '{text_preview}...'")
-                    return True, confidence, scores
+            # Build log message
+            directed_str = "directed" if is_strongly_directed(text) else "not directed"
+            top_level_str = "top-level" if is_top_level else "reply"
+            triggers = " + ".join(triggered_reasons)
             
-            self.pattern_skipped += 1
-            max_score = max(scores.values())
-            top_label = max(scores, key=scores.get)
-            logging.info(f"PREFILTER | SKIP (detoxify below threshold, top: {top_label}={max_score:.2f}) | '{text_preview}...'")
-            return False, max_score, scores
-            
-        except Exception as e:
-            logging.warning(f"Detoxify scoring failed: {e}. Sending to LLM.")
-            self.detoxify_triggered += 1
-            return True, 0.5, {}
+            logging.info(f"PREFILTER | SEND ({triggers}) [{directed_str}, {top_level_str}] | '{text_preview}...'")
+            return True, max_score, scores
+        
+        # --- Neither triggered: SKIP ---
+        self.pattern_skipped += 1
+        
+        if scores:
+            numeric_scores = {k: v for k, v in scores.items() if isinstance(v, (int, float))}
+            if numeric_scores:
+                max_score = max(numeric_scores.values())
+                top_label = max(numeric_scores, key=numeric_scores.get)
+                logging.info(f"PREFILTER | SKIP (below thresholds, top: {top_label}={max_score:.2f}) | '{text_preview}...'")
+                return False, max_score, scores
+        
+        logging.info(f"PREFILTER | SKIP (no triggers) | '{text_preview}...'")
+        return False, 0.0, scores
     
     def get_stats(self) -> str:
         if self.total == 0:
