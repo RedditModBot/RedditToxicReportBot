@@ -292,6 +292,7 @@ class Config:
     
     # Detoxify pre-filter
     detoxify_model: str        # "original" or "unbiased"
+    detoxify_can_escalate: bool  # Whether Detoxify can trigger LLM review on its own
     
     # OpenAI Moderation API (optional, free supplement to Detoxify)
     openai_moderation_key: str      # API key for OpenAI (also used for moderation)
@@ -317,6 +318,15 @@ class Config:
     threshold_toxicity_not_directed: float
     threshold_obscene: float
     threshold_borderline: float  # Score above this logs as borderline skip
+    
+    # Auto-remove settings
+    auto_remove_enabled: bool       # Master switch for auto-remove
+    auto_remove_require_models: List[str]  # Which models must agree (detoxify, openai, perspective)
+    auto_remove_min_consensus: int  # Minimum number of models that must agree
+    auto_remove_detoxify_min: float # Min Detoxify score for auto-remove
+    auto_remove_openai_min: float   # Min OpenAI score for auto-remove
+    auto_remove_perspective_min: float  # Min Perspective score for auto-remove
+    auto_remove_on_pattern_match: bool  # Auto-remove on pattern matches (slurs, threats)
     
     # Custom moderation guidelines (loaded from file or env)
     moderation_guidelines: str
@@ -386,6 +396,7 @@ def load_config() -> Config:
         llm_requests_per_minute=int(os.getenv("LLM_REQUESTS_PER_MINUTE", "2")),
         
         detoxify_model=os.getenv("DETOXIFY_MODEL", "original"),
+        detoxify_can_escalate=os.getenv("DETOXIFY_CAN_ESCALATE", "true").lower() == "true",
         
         # OpenAI Moderation API settings
         openai_moderation_key=os.getenv("OPENAI_API_KEY", ""),  # Reuse same key as for other OpenAI
@@ -411,6 +422,15 @@ def load_config() -> Config:
         threshold_toxicity_not_directed=float(os.getenv("THRESHOLD_TOXICITY_NOT_DIRECTED", "0.50")),
         threshold_obscene=float(os.getenv("THRESHOLD_OBSCENE", "0.90")),
         threshold_borderline=float(os.getenv("THRESHOLD_BORDERLINE", "0.35")),
+        
+        # Auto-remove settings
+        auto_remove_enabled=os.getenv("AUTO_REMOVE_ENABLED", "false").lower() == "true",
+        auto_remove_require_models=[s.strip().lower() for s in os.getenv("AUTO_REMOVE_REQUIRE_MODELS", "openai,perspective").split(",") if s.strip()],
+        auto_remove_min_consensus=int(os.getenv("AUTO_REMOVE_MIN_CONSENSUS", "2")),
+        auto_remove_detoxify_min=float(os.getenv("AUTO_REMOVE_DETOXIFY_MIN", "0.70")),
+        auto_remove_openai_min=float(os.getenv("AUTO_REMOVE_OPENAI_MIN", "0.70")),
+        auto_remove_perspective_min=float(os.getenv("AUTO_REMOVE_PERSPECTIVE_MIN", "0.70")),
+        auto_remove_on_pattern_match=os.getenv("AUTO_REMOVE_ON_PATTERN_MATCH", "false").lower() == "true",
         
         moderation_guidelines=guidelines,
         
@@ -1655,8 +1675,11 @@ class SmartPreFilter:
                     triggered_reasons.append(f"perspective:{','.join(triggered_cats[:3])}")
         
         # --- Decision: Send to AI if any triggered ---
-        if detoxify_triggered or openai_mod_triggered or perspective_triggered:
-            # Count detoxify triggers (for consistency with openai/perspective counters)
+        # If detoxify_can_escalate is False, detoxify alone won't trigger send
+        effective_detoxify_triggered = detoxify_triggered and self.config.detoxify_can_escalate
+        
+        if effective_detoxify_triggered or openai_mod_triggered or perspective_triggered:
+            # Count detoxify triggers (for stats, even if not used for escalation)
             if detoxify_triggered:
                 self.detoxify_triggered += 1
             
@@ -1666,6 +1689,10 @@ class SmartPreFilter:
             directed_str = "directed" if is_strongly_directed(text) else "not directed"
             top_level_str = "top-level" if is_top_level else "reply"
             triggers = " + ".join(triggered_reasons)
+            
+            # Note if detoxify was ignored
+            if detoxify_triggered and not self.config.detoxify_can_escalate:
+                triggers += " (detoxify ignored)"
             
             # Add trigger reasons to scores for Discord notification
             scores["_trigger_reasons"] = triggers
@@ -1678,6 +1705,10 @@ class SmartPreFilter:
         
         # --- None triggered: SKIP ---
         self.pattern_skipped += 1
+        
+        # Log if detoxify triggered but was ignored
+        if detoxify_triggered and not self.config.detoxify_can_escalate:
+            logging.debug(f"PREFILTER | SKIP (detoxify triggered but DETOXIFY_CAN_ESCALATE=false) | '{text_preview}...'")
         
         if scores:
             numeric_scores = {k: v for k, v in scores.items() if isinstance(v, (int, float))}
@@ -2354,6 +2385,60 @@ def notify_discord_report(webhook: str, comment_text: str, permalink: str,
     )
 
 
+def notify_discord_auto_remove(webhook: str, comment_text: str, permalink: str,
+                                reason: str, scores: Dict[str, float], 
+                                auto_remove_reason: str) -> None:
+    """Send a Discord notification when a comment is auto-removed"""
+    if not webhook:
+        return
+    
+    # Truncate comment for Discord
+    truncated = comment_text[:1500] + "..." if len(comment_text) > 1500 else comment_text
+    
+    # Build scores summary
+    score_parts = []
+    
+    # Detoxify max score
+    detox_scores = {k: v for k, v in scores.items() 
+                  if not k.startswith(('openai_', 'perspective_', '_')) and isinstance(v, (int, float))}
+    if detox_scores:
+        max_detox = max(detox_scores.values())
+        score_parts.append(f"Detoxify: {max_detox:.2f}")
+    
+    # OpenAI max score
+    openai_scores = {k.replace('openai_', ''): v for k, v in scores.items() 
+                    if k.startswith('openai_') and isinstance(v, (int, float))}
+    if openai_scores:
+        max_openai = max(openai_scores.values())
+        top_cat = max(openai_scores, key=openai_scores.get)
+        score_parts.append(f"OpenAI: {max_openai:.2f} ({top_cat})")
+    
+    # Perspective max score
+    persp_scores = {k.replace('perspective_', ''): v for k, v in scores.items() 
+                   if k.startswith('perspective_') and isinstance(v, (int, float))}
+    if persp_scores:
+        max_persp = max(persp_scores.values())
+        top_cat = max(persp_scores, key=persp_scores.get)
+        score_parts.append(f"Perspective: {max_persp:.2f} ({top_cat})")
+    
+    scores_display = " | ".join(score_parts) if score_parts else "N/A"
+    
+    fields = [
+        {"name": "Reason", "value": reason[:1024], "inline": False},
+        {"name": "ML Scores", "value": scores_display, "inline": False},
+        {"name": "Auto-Remove Trigger", "value": f"`{auto_remove_reason}`", "inline": False},
+    ]
+    
+    post_discord_embed(
+        webhook=webhook,
+        title="🚫 Comment AUTO-REMOVED (pending mod review)",
+        description=f"```{truncated}```",
+        color=0x9B59B6,  # Purple to distinguish from regular reports
+        fields=fields,
+        url=permalink
+    )
+
+
 def notify_discord_llm_analysis(webhook: str, comment_text: str, permalink: str,
                                  detoxify_score: float, subreddit: str,
                                  trigger_reasons: str = None) -> None:
@@ -2669,6 +2754,87 @@ def get_text_from_thing(thing) -> Optional[str]:
 # Report
 # -------------------------------
 
+def check_auto_remove_consensus(scores: Dict[str, float], cfg: Config, is_pattern_match: bool = False) -> Tuple[bool, str]:
+    """
+    Check if comment meets consensus requirements for auto-removal.
+    
+    Returns:
+        (should_auto_remove, reason_string)
+    """
+    if not cfg.auto_remove_enabled:
+        return False, ""
+    
+    # Check pattern match override
+    if is_pattern_match:
+        if cfg.auto_remove_on_pattern_match:
+            return True, "pattern_match"
+        else:
+            return False, ""
+    
+    # Check consensus from required models
+    required_models = cfg.auto_remove_require_models
+    if not required_models:
+        return False, ""
+    
+    models_passed = []
+    models_failed = []
+    
+    for model in required_models:
+        model = model.lower()
+        
+        if model == "detoxify":
+            # Get max Detoxify score (non-prefixed scores)
+            detox_scores = {k: v for k, v in scores.items() 
+                          if not k.startswith(('openai_', 'perspective_', '_')) and isinstance(v, (int, float))}
+            max_detox = max(detox_scores.values()) if detox_scores else 0.0
+            if max_detox >= cfg.auto_remove_detoxify_min:
+                models_passed.append(f"detoxify={max_detox:.2f}")
+            else:
+                models_failed.append(f"detoxify={max_detox:.2f}<{cfg.auto_remove_detoxify_min}")
+                
+        elif model == "openai":
+            # Get max OpenAI score
+            openai_scores = {k: v for k, v in scores.items() 
+                           if k.startswith('openai_') and isinstance(v, (int, float))}
+            max_openai = max(openai_scores.values()) if openai_scores else 0.0
+            if max_openai >= cfg.auto_remove_openai_min:
+                models_passed.append(f"openai={max_openai:.2f}")
+            else:
+                models_failed.append(f"openai={max_openai:.2f}<{cfg.auto_remove_openai_min}")
+                
+        elif model == "perspective":
+            # Get max Perspective score
+            persp_scores = {k: v for k, v in scores.items() 
+                          if k.startswith('perspective_') and isinstance(v, (int, float))}
+            max_persp = max(persp_scores.values()) if persp_scores else 0.0
+            if max_persp >= cfg.auto_remove_perspective_min:
+                models_passed.append(f"perspective={max_persp:.2f}")
+            else:
+                models_failed.append(f"perspective={max_persp:.2f}<{cfg.auto_remove_perspective_min}")
+    
+    # Check if enough models passed
+    if len(models_passed) >= cfg.auto_remove_min_consensus:
+        return True, f"consensus:{'+'.join(models_passed)}"
+    else:
+        return False, f"no_consensus:{'+'.join(models_failed)}"
+
+
+def auto_remove_comment(comment, reason: str, cfg: Config) -> bool:
+    """
+    Remove a comment (sends to mod queue for review).
+    
+    Returns:
+        True if removed successfully, False otherwise
+    """
+    try:
+        comment.mod.remove(spam=False)
+        logging.info(f"AUTO-REMOVED comment (pending mod review): {reason}")
+        return True
+    except Exception as e:
+        logging.error(f"Failed to auto-remove comment: {e}")
+        return False
+
+
 def file_report(thing, reason: str, cfg: Config) -> None:
     try:
         if cfg.report_as == "moderator":
@@ -2821,12 +2987,25 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
     # File report (only if not dry run)
     if cfg.enable_reddit_reports and should_report:
         reason = build_report_reason(result)
+        
+        # Check if we should auto-remove
+        is_pattern_match = "_trigger_reasons" in detox_scores and "must_escalate" in detox_scores.get("_trigger_reasons", "")
+        should_auto_remove, auto_remove_reason = check_auto_remove_consensus(detox_scores, cfg, is_pattern_match)
+        
         if cfg.dry_run:
-            # Already logged above
-            pass
+            logging.info(f"ACTION: >>> WOULD REPORT <<< (dry run enabled)")
+            if should_auto_remove:
+                logging.info(f"ACTION: >>> WOULD AUTO-REMOVE <<< ({auto_remove_reason})")
         else:
             try:
+                # Always file the report first
                 file_report(thing, reason, cfg)
+                
+                # Auto-remove if consensus met
+                auto_removed = False
+                if should_auto_remove:
+                    auto_removed = auto_remove_comment(thing, auto_remove_reason, cfg)
+                
                 # Track the reported comment for accuracy measurement
                 track_reported_comment(
                     comment_id=thing_id,
@@ -2836,14 +3015,25 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
                     detoxify_score=detox_score,
                     is_top_level=is_top_level
                 )
+                
                 # Send Discord notification for report
-                notify_discord_report(
-                    webhook=cfg.discord_webhook,
-                    comment_text=text,
-                    permalink=permalink,
-                    reason=result.reason,
-                    detoxify_score=detox_score
-                )
+                if auto_removed:
+                    notify_discord_auto_remove(
+                        webhook=cfg.discord_webhook,
+                        comment_text=text,
+                        permalink=permalink,
+                        reason=result.reason,
+                        scores=detox_scores,
+                        auto_remove_reason=auto_remove_reason
+                    )
+                else:
+                    notify_discord_report(
+                        webhook=cfg.discord_webhook,
+                        comment_text=text,
+                        permalink=permalink,
+                        reason=result.reason,
+                        detoxify_score=detox_score
+                    )
             except prawcore.exceptions.Forbidden as e:
                 logging.error(f"Forbidden when reporting {thing_id}: {e}")
             except prawcore.exceptions.NotFound as e:
