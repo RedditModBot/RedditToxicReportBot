@@ -761,15 +761,19 @@ def build_must_escalate_regex() -> List[re.Pattern]:
 
 MUST_ESCALATE_RE = build_must_escalate_regex()
 
-# Benign phrase regex for exact matching short exclamations
+# Benign phrase regex - allow trailing lol/lmao/emoji/punctuation
+# These match common exclamations that are clearly not attacks
+BENIGN_TAIL_PATTERN = r'[\s.,!?…]*(?:lol|lmao|rofl|haha|😂|🤣|😭|💀|🔥|👀|😱|🤯|omg|bruh)?[\s.,!?…😂🤣😭💀🔥👀😱🤯]*$'
+
 BENIGN_PHRASES_RE = [
-    re.compile(r'^(holy\s+)?(shit|fuck|crap|hell|cow)!*$', re.IGNORECASE),
-    re.compile(r'^what\s+the\s+(fuck|hell|heck)\??!*$', re.IGNORECASE),
-    re.compile(r'^(oh\s+)?(my\s+)?(god|gosh|lord)!*$', re.IGNORECASE),
-    re.compile(r'^(damn|dang|darn)!*$', re.IGNORECASE),
-    re.compile(r'^no\s+(fucking|freaking)?\s*way!*$', re.IGNORECASE),
-    re.compile(r'^(wow|whoa|woah)!*$', re.IGNORECASE),
-    re.compile(r'^(omg|wtf|lol|lmao)!*$', re.IGNORECASE),
+    re.compile(r'^(holy\s+)?(shit|fuck|crap|hell|cow)' + BENIGN_TAIL_PATTERN, re.IGNORECASE),
+    re.compile(r'^what\s+the\s+(fuck|hell|heck)' + BENIGN_TAIL_PATTERN, re.IGNORECASE),
+    re.compile(r'^(oh\s+)?(my\s+)?(god|gosh|lord)' + BENIGN_TAIL_PATTERN, re.IGNORECASE),
+    re.compile(r'^(damn|dang|darn)' + BENIGN_TAIL_PATTERN, re.IGNORECASE),
+    re.compile(r'^no\s+(fucking|freaking)?\s*way' + BENIGN_TAIL_PATTERN, re.IGNORECASE),
+    re.compile(r'^(wow|whoa|woah)' + BENIGN_TAIL_PATTERN, re.IGNORECASE),
+    re.compile(r'^(omg|wtf|lol|lmao|bruh)' + BENIGN_TAIL_PATTERN, re.IGNORECASE),
+    re.compile(r'^(this is |that\'?s )?(insane|crazy|wild|nuts|unreal|incredible|amazing)' + BENIGN_TAIL_PATTERN, re.IGNORECASE),
 ]
 
 
@@ -1005,12 +1009,49 @@ def contains_sexual_violence(text: str) -> bool:
     return False
 
 def contains_brigading(text: str) -> bool:
-    """Check if text contains brigading/harassment calls"""
+    """
+    Check if text contains brigading/harassment calls WITH targeting context.
+    "mass report" and "everyone report" are only brigading if they target a user/person.
+    Otherwise they could be "report to MUFON", "report to Congress", etc.
+    """
     normalized = normalize_text(text)
+    
+    # Phrases that always indicate brigading (inherently targeted)
+    always_brigading = {
+        'everyone go harass', 'go harass this guy', 'go after this guy',
+        'ruin their life', 'make them regret', 'teach them a lesson',
+        'dox them', 'doxx them', 'raid this'
+    }
+    
+    # Phrases that need targeting context
+    needs_context = {'mass report', 'everyone report', 'brigade'}
+    
+    # Targeting indicators (user/person references)
+    targeting_patterns = [
+        r'\bu/', r'\bthis\s+(guy|dude|user|person|account)\b',
+        r'\bthat\s+(guy|dude|user|person|account)\b',
+        r'\btheir\s+(account|profile|post)\b', r'\bthis\s+post\b',
+        r'\bthe\s+mods?\b', r'\bop\b', r'\bhim\b', r'\bher\b', r'\bthem\b'
+    ]
+    
     for phrase in BRIGADING_PHRASES:
         pattern = r'\b' + re.escape(phrase) + r'\b'
         if re.search(pattern, normalized):
+            # Always-brigading phrases trigger immediately
+            if phrase in always_brigading:
+                return True
+            
+            # Context-dependent phrases need targeting
+            if phrase in needs_context:
+                has_targeting = any(re.search(t, normalized) for t in targeting_patterns)
+                if has_targeting:
+                    return True
+                # Without targeting, skip (could be "report to authorities")
+                continue
+            
+            # Other brigading phrases - trigger
             return True
+    
     return False
 
 def contains_shill_accusation(text: str) -> bool:
@@ -1046,14 +1087,47 @@ def contains_dismissive_hostile(text: str) -> Tuple[bool, str]:
     return False, ""
 
 def contains_violence_illegal(text: str) -> bool:
-    """Check if text contains violence/illegal advocacy phrases"""
+    """
+    Check if text contains violence/illegal advocacy phrases WITH exhortative context.
+    Requires words like "should/let's/gonna/going to" to trigger.
+    Excludes negations like "don't/never/shouldn't" which are discussions, not advocacy.
+    """
     normalized = normalize_text(text)
+    
+    # Negation patterns - if present, this is likely discussion, not advocacy
+    negation_patterns = [
+        r'\bdon\'?t\b', r'\bdo\s+not\b', r'\bnever\b', r'\bshouldn\'?t\b',
+        r'\bshould\s+not\b', r'\bwouldn\'?t\b', r'\bwould\s+not\b',
+        r'\bcan\'?t\b', r'\bcannot\b', r'\billegal\s+to\b', r'\bagainst\s+the\s+law\b'
+    ]
+    
+    # Exhortative patterns - advocacy requires these
+    exhortative_patterns = [
+        r'\bshould\b', r'\blet\'?s\b', r'\bgonna\b', r'\bgoing\s+to\b',
+        r'\bneed\s+to\b', r'\bwant\s+to\b', r'\bwanna\b', r'\bgotta\b',
+        r'\bwe\s+could\b', r'\bsomeone\s+should\b', r'\bwould\s+be\s+funny\b',
+        r'\bi\'?m\s+gonna\b', r'\bi\'?ll\b', r'\bwe\'?ll\b', r'\bjust\b'
+    ]
     
     for phrase in VIOLENCE_ILLEGAL_PHRASES:
         # Use word boundaries for all phrases to avoid false matches
         pattern = r'\b' + re.escape(phrase) + r'\b'
         if re.search(pattern, normalized):
-            return True
+            # Check for negation first - if negated, it's discussion not advocacy
+            has_negation = any(re.search(neg, normalized) for neg in negation_patterns)
+            if has_negation:
+                continue  # Skip - this is "don't shoot" not "shoot it"
+            
+            # Check for exhortative context
+            has_exhortative = any(re.search(exh, normalized) for exh in exhortative_patterns)
+            if has_exhortative:
+                return True
+            
+            # Also trigger if it's a direct imperative (starts with verb)
+            # e.g., "Shoot it down!" at the start
+            if normalized.strip().startswith(phrase):
+                return True
+    
     return False
 
 def contains_direct_insult(text: str) -> bool:
