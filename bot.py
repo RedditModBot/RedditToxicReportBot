@@ -1309,6 +1309,7 @@ class PerspectiveAPIClient:
                 'doNotStore': True,  # Don't store for training
             }
             
+            logging.info(f"HTTP Request: POST https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze")
             response = self.client.comments().analyze(body=analyze_request).execute()
             
             # Extract scores
