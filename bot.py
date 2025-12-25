@@ -1309,6 +1309,13 @@ class PerspectiveAPIClient:
             return is_flagged, max_score, scores
             
         except Exception as e:
+            error_str = str(e)
+            # Handle unsupported language gracefully (don't log as warning)
+            if 'LANGUAGE_NOT_SUPPORTED' in error_str or 'does not support request languages' in error_str:
+                logging.debug(f"Perspective API: language not supported, skipping")
+                self.errors += 1
+                return False, 0.0, {}
+            
             logging.warning(f"Perspective API error: {e}")
             self.errors += 1
             return False, 0.0, {}
@@ -1409,6 +1416,41 @@ class SmartPreFilter:
         self.benign_skipped = 0
         self.pattern_skipped = 0
     
+    def _get_ml_scores(self, text: str, is_top_level: bool = False) -> Dict[str, float]:
+        """
+        Get ML scores from all available detectors (Detoxify, OpenAI, Perspective).
+        Used to provide context to LLM even for pattern-matched comments.
+        """
+        scores = {}
+        
+        # Run Detoxify if available
+        if self.available:
+            try:
+                results = self.model.predict(text)
+                scores = {k: float(v) for k, v in results.items()}
+            except Exception as e:
+                logging.debug(f"Detoxify scoring failed in _get_ml_scores: {e}")
+        
+        # Run OpenAI Moderation if available (always run for context)
+        if self.openai_mod_client and self.openai_mod_client.available:
+            try:
+                _, _, mod_scores = self.openai_mod_client.check_toxicity(text)
+                for cat, score in mod_scores.items():
+                    scores[f"openai_{cat}"] = score
+            except Exception as e:
+                logging.debug(f"OpenAI Moderation failed in _get_ml_scores: {e}")
+        
+        # Run Perspective if available (always run for context)
+        if self.perspective_client and self.perspective_client.available:
+            try:
+                _, _, persp_scores = self.perspective_client.check_toxicity(text)
+                for cat, score in persp_scores.items():
+                    scores[f"perspective_{cat}"] = score
+            except Exception as e:
+                logging.debug(f"Perspective API failed in _get_ml_scores: {e}")
+        
+        return scores
+    
     def should_analyze(self, text: str, is_top_level: bool = False) -> Tuple[bool, float, Dict[str, float]]:
         """
         Determine if comment should be sent to LLM.
@@ -1427,81 +1469,67 @@ class SmartPreFilter:
         # Layer 1: Must-escalate patterns
         # -----------------------------------------
         
+        must_escalate_reason = None
+        
         # Check regex patterns
         for pattern in MUST_ESCALATE_RE:
             if pattern.search(text):
-                self.must_escalate += 1
-                logging.info(f"PREFILTER | MUST_ESCALATE (regex) | '{text_preview}...'")
-                return True, 1.0, {"pattern_match": 1.0, "_trigger_reasons": "must_escalate:regex_pattern"}
+                must_escalate_reason = "must_escalate:regex_pattern"
+                break
         
         # Check slurs (now handles both words and phrases)
-        if contains_slur(text):
-            self.must_escalate += 1
-            logging.info(f"PREFILTER | MUST_ESCALATE (slur) | '{text_preview}...'")
-            return True, 1.0, {"slur": 1.0, "_trigger_reasons": "must_escalate:slur"}
+        if not must_escalate_reason and contains_slur(text):
+            must_escalate_reason = "must_escalate:slur"
         
         # Check self-harm
-        if contains_self_harm(text):
-            self.must_escalate += 1
-            logging.info(f"PREFILTER | MUST_ESCALATE (self-harm) | '{text_preview}...'")
-            return True, 1.0, {"self_harm": 1.0, "_trigger_reasons": "must_escalate:self-harm"}
+        if not must_escalate_reason and contains_self_harm(text):
+            must_escalate_reason = "must_escalate:self-harm"
         
         # Check threats
-        if contains_threat(text):
-            self.must_escalate += 1
-            logging.info(f"PREFILTER | MUST_ESCALATE (threat) | '{text_preview}...'")
-            return True, 1.0, {"threat": 1.0, "_trigger_reasons": "must_escalate:threat"}
+        if not must_escalate_reason and contains_threat(text):
+            must_escalate_reason = "must_escalate:threat"
         
         # Check sexual violence
-        if contains_sexual_violence(text):
-            self.must_escalate += 1
-            logging.info(f"PREFILTER | MUST_ESCALATE (sexual violence) | '{text_preview}...'")
-            return True, 1.0, {"sexual_violence": 1.0, "_trigger_reasons": "must_escalate:sexual_violence"}
+        if not must_escalate_reason and contains_sexual_violence(text):
+            must_escalate_reason = "must_escalate:sexual_violence"
         
         # Check brigading/harassment calls
-        if contains_brigading(text):
-            self.must_escalate += 1
-            logging.info(f"PREFILTER | MUST_ESCALATE (brigading) | '{text_preview}...'")
-            return True, 1.0, {"brigading": 1.0, "_trigger_reasons": "must_escalate:brigading"}
+        if not must_escalate_reason and contains_brigading(text):
+            must_escalate_reason = "must_escalate:brigading"
         
         # Check violence/illegal advocacy (e.g., "shoot it down", "shine a laser")
-        if contains_violence_illegal(text):
-            self.must_escalate += 1
-            logging.info(f"PREFILTER | MUST_ESCALATE (violence/illegal) | '{text_preview}...'")
-            return True, 1.0, {"violence_illegal": 1.0, "_trigger_reasons": "must_escalate:violence_illegal"}
+        if not must_escalate_reason and contains_violence_illegal(text):
+            must_escalate_reason = "must_escalate:violence_illegal"
         
         # Check shill accusations (only if STRONGLY directed at someone)
-        if is_strongly_directed(text) and contains_shill_accusation(text):
-            self.must_escalate += 1
-            logging.info(f"PREFILTER | MUST_ESCALATE (shill accusation) | '{text_preview}...'")
-            return True, 1.0, {"shill_accusation": 1.0, "_trigger_reasons": "must_escalate:shill_accusation"}
+        if not must_escalate_reason and is_strongly_directed(text) and contains_shill_accusation(text):
+            must_escalate_reason = "must_escalate:shill_accusation"
         
         # Check dismissive/hostile - now split into hard and soft
-        # Hard phrases (fuck off, eat shit) escalate on any reply
-        # Soft phrases (cope, touch grass) only escalate when strongly directed
-        has_dismissive, dismissive_type = contains_dismissive_hostile(text)
-        if has_dismissive:
-            if dismissive_type == "hard":
-                # Hard phrases: escalate if directed OR if it's a reply
-                if is_strongly_directed(text) or not is_top_level:
-                    self.must_escalate += 1
-                    context = "directed" if is_strongly_directed(text) else "reply"
-                    logging.info(f"PREFILTER | MUST_ESCALATE (dismissive_hard + {context}) | '{text_preview}...'")
-                    return True, 1.0, {"dismissive_hostile": 1.0, "_trigger_reasons": f"must_escalate:dismissive_hard+{context}"}
-            else:
-                # Soft phrases: only escalate if strongly directed (not just reply)
-                if is_strongly_directed(text):
-                    self.must_escalate += 1
-                    logging.info(f"PREFILTER | MUST_ESCALATE (dismissive_soft + directed) | '{text_preview}...'")
-                    return True, 1.0, {"dismissive_hostile": 1.0, "_trigger_reasons": "must_escalate:dismissive_soft+directed"}
+        if not must_escalate_reason:
+            has_dismissive, dismissive_type = contains_dismissive_hostile(text)
+            if has_dismissive:
+                if dismissive_type == "hard":
+                    if is_strongly_directed(text) or not is_top_level:
+                        context = "directed" if is_strongly_directed(text) else "reply"
+                        must_escalate_reason = f"must_escalate:dismissive_hard+{context}"
+                else:
+                    if is_strongly_directed(text):
+                        must_escalate_reason = "must_escalate:dismissive_soft+directed"
         
         # Check direct insults + strongly directed (or reply context)
-        if contains_direct_insult(text):
+        if not must_escalate_reason and contains_direct_insult(text):
             if is_strongly_directed(text) or not is_top_level:
-                self.must_escalate += 1
                 context = "directed" if is_strongly_directed(text) else "reply"
-                logging.info(f"PREFILTER | MUST_ESCALATE (insult + {context}) | '{text_preview}...'")
-                return True, 1.0, {"direct_insult": 1.0, "_trigger_reasons": f"must_escalate:insult+{context}"}
+                must_escalate_reason = f"must_escalate:insult+{context}"
+        
+        # If must_escalate triggered, still get ML scores for context, then return
+        if must_escalate_reason:
+            self.must_escalate += 1
+            scores = self._get_ml_scores(text, is_top_level)
+            scores["_trigger_reasons"] = must_escalate_reason
+            logging.info(f"PREFILTER | MUST_ESCALATE ({must_escalate_reason}) | '{text_preview}...'")
+            return True, 1.0, scores
         
         # -----------------------------------------
         # Layer 2: Benign phrase skip
@@ -1876,9 +1904,66 @@ class LLMAnalyzer:
             # Don't fail on header parsing errors
             logging.debug(f"Could not parse rate limit headers: {e}")
     
+    def _build_ml_scores_context(self, scores: Dict[str, float]) -> str:
+        """Build a context string describing ML detector scores for the LLM."""
+        if not scores:
+            return ""
+        
+        lines = ["[ML DETECTOR SCORES - Multiple models analyzed this comment:]"]
+        
+        # Detoxify scores (local ML model)
+        detoxify_scores = {k: v for k, v in scores.items() 
+                          if not k.startswith(('openai_', 'perspective_', '_')) and isinstance(v, (int, float))}
+        if detoxify_scores:
+            top_scores = sorted(detoxify_scores.items(), key=lambda x: x[1], reverse=True)[:4]
+            score_strs = [f"{k}={v:.2f}" for k, v in top_scores if v > 0.1]
+            if score_strs:
+                lines.append(f"")
+                lines.append(f"  DETOXIFY (local ML model - fast pre-filter, can have false positives on profanity):")
+                lines.append(f"    Scores: {', '.join(score_strs)}")
+                lines.append(f"    Thresholds: insult≥0.40 (directed)/0.65 (general), toxicity≥0.50/0.65, threat≥0.15")
+        
+        # OpenAI Moderation scores
+        openai_scores = {k.replace('openai_', ''): v for k, v in scores.items() 
+                        if k.startswith('openai_') and isinstance(v, (int, float))}
+        if openai_scores:
+            top_scores = sorted(openai_scores.items(), key=lambda x: x[1], reverse=True)[:4]
+            score_strs = [f"{k}={v:.2f}" for k, v in top_scores if v > 0.1]
+            if score_strs:
+                lines.append(f"")
+                lines.append(f"  OPENAI MODERATION (highly accurate for harassment, hate speech, self-harm, violence):")
+                lines.append(f"    Scores: {', '.join(score_strs)}")
+                lines.append(f"    Thresholds: harassment≥0.50, hate≥0.50, violence≥0.70, self-harm≥0.30")
+        
+        # Perspective API scores
+        perspective_scores = {k.replace('perspective_', ''): v for k, v in scores.items() 
+                             if k.startswith('perspective_') and isinstance(v, (int, float))}
+        if perspective_scores:
+            top_scores = sorted(perspective_scores.items(), key=lambda x: x[1], reverse=True)[:4]
+            score_strs = [f"{k}={v:.2f}" for k, v in top_scores if v > 0.1]
+            if score_strs:
+                lines.append(f"")
+                lines.append(f"  GOOGLE PERSPECTIVE (highly accurate for toxicity, trained on millions of comments):")
+                lines.append(f"    Scores: {', '.join(score_strs)}")
+                lines.append(f"    Thresholds: TOXICITY≥0.70, INSULT≥0.70, SEVERE_TOXICITY≥0.50, THREAT≥0.50")
+        
+        # Check trigger reasons if available
+        trigger = scores.get('_trigger_reasons', '')
+        if trigger and 'must_escalate' in trigger:
+            lines.append(f"")
+            lines.append(f"  ⚠️ PATTERN MATCH: {trigger}")
+            lines.append(f"    (Direct pattern match on slurs, threats, or targeted insults)")
+        
+        if len(lines) > 1:
+            lines.append(f"")
+            lines.append(f"  GUIDANCE: OpenAI and Google Perspective are more accurate for true toxicity.")
+            lines.append(f"  High scores from multiple models = stronger signal. Use your judgment on context.")
+            return '\n'.join(lines)
+        return ""
+    
     def analyze(self, text: str, subreddit: str, parent_context: str = "", 
                 detoxify_score: float = 0.0, is_top_level: bool = False, 
-                post_title: str = "") -> AnalysisResult:
+                post_title: str = "", scores: Dict[str, float] = None) -> AnalysisResult:
         """Send to Groq for nuanced analysis"""
         
         current_model = self._get_current_model()
@@ -1895,6 +1980,11 @@ class LLMAnalyzer:
         has_quotes = '\n>' in text or text.startswith('>')
         if has_quotes:
             context_note += "\n[CONTAINS QUOTED TEXT - lines starting with '>' are quoting another user, not the commenter's own words]"
+        
+        # Build ML scores context for the LLM
+        ml_context = self._build_ml_scores_context(scores)
+        if ml_context:
+            context_note += f"\n\n{ml_context}"
         
         # Build user prompt with post title and context
         user_prompt = f"{context_note}\n"
@@ -2676,7 +2766,7 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
             trigger_reasons=trigger_reasons
         )
     
-    result = analyzer.analyze(text, subreddit_name, parent_ctx, detox_score, is_top_level, post_title)
+    result = analyzer.analyze(text, subreddit_name, parent_ctx, detox_score, is_top_level, post_title, detox_scores)
     
     # Show Groq's verdict and reasoning
     logging.info(f"")
