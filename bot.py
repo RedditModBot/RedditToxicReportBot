@@ -736,8 +736,19 @@ def is_strongly_directed(text: str) -> bool:
     # "everyone here"
     if re.search(r'\beveryone here\b', text_lower):
         return True
+    # "people here" (attacking users in this sub)
+    if re.search(r'\bpeople here\b', text_lower):
+        return True
     # "this sub" / "this subreddit" (attacking the community)
     if re.search(r'\bthis (sub|subreddit)\b', text_lower):
+        return True
+    
+    # Direct address terms combined with negative content
+    # "bro", "dude", "man" when used to address someone directly
+    # Only count as directed if followed by criticism/insult patterns
+    if re.search(r'\b(come on|shut up|wtf|calm down|chill out)\s*(bro|dude|man)\b', text_lower):
+        return True
+    if re.search(r'\b(bro|dude|man)\s*,?\s*(this is|you\'re|you are|that\'s)\s*(stupid|dumb|idiotic|moronic|ridiculous)', text_lower):
         return True
     
     # Imperatives - commands directed at the reader even without "you"
