@@ -285,6 +285,7 @@ class Config:
     # LLM
     groq_api_key: str
     xai_api_key: str  # Optional: for x.ai Grok models
+    xai_reasoning_effort: str  # "low", "medium", or "high" for Grok reasoning
     llm_model: str
     llm_fallback_chain: List[str]  # Fallback models in order of preference
     llm_daily_limit: int        # Switch to fallback after this many calls
@@ -388,6 +389,7 @@ def load_config() -> Config:
         
         groq_api_key=os.environ["GROQ_API_KEY"],
         xai_api_key=os.getenv("XAI_API_KEY", ""),  # Optional
+        xai_reasoning_effort=os.getenv("XAI_REASONING_EFFORT", "low"),  # "low", "medium", or "high"
         llm_model=os.getenv("LLM_MODEL", "groq/compound"),
         llm_fallback_chain=[s.strip() for s in os.getenv("LLM_FALLBACK_CHAIN", 
             "llama-3.3-70b-versatile,meta-llama/llama-4-scout-17b-16e-instruct,meta-llama/llama-4-maverick-17b-128e-instruct,llama-3.1-8b-instant"
@@ -1774,15 +1776,17 @@ class LLMAnalyzer:
     
     def __init__(self, groq_api_key: str, model: str, guidelines: str, 
                  fallback_chain: List[str] = None, daily_limit: int = 240,
-                 requests_per_minute: int = 2, xai_api_key: str = ""):
+                 requests_per_minute: int = 2, xai_api_key: str = "",
+                 xai_reasoning_effort: str = "low"):
         # Groq client (always available)
         self.groq_client = Groq(api_key=groq_api_key)
         
         # x.ai client (optional, for Grok models)
         self.xai_client = None
+        self.xai_reasoning_effort = xai_reasoning_effort
         if xai_api_key:
             self.xai_client = OpenAI(api_key=xai_api_key, base_url="https://api.x.ai/v1")
-            logging.info("x.ai Grok API configured")
+            logging.info(f"x.ai Grok API configured (reasoning_effort={xai_reasoning_effort})")
         
         # Generate a fixed conversation ID for x.ai cache persistence
         # This increases likelihood of cache hits across requests
@@ -2084,14 +2088,16 @@ class LLMAnalyzer:
                         if is_xai:
                             # x.ai API (OpenAI-compatible)
                             # Use conv_id header to improve prompt caching across requests
+                            # Use reasoning_effort for better judgment on nuanced cases
                             response = self.xai_client.chat.completions.create(
                                 model=model_to_use,
                                 messages=[
                                     {"role": "system", "content": system_prompt},
                                     {"role": "user", "content": user_prompt}
                                 ],
-                                max_tokens=100,
+                                max_tokens=200,  # Increased to allow for reasoning
                                 temperature=0.1,
+                                extra_body={"reasoning_effort": self.xai_reasoning_effort},
                                 extra_headers={"x-grok-conv-id": self.xai_conv_id}
                             )
                             raw_response = None  # No rate limit headers for x.ai
@@ -3113,6 +3119,7 @@ def main() -> None:
     analyzer = LLMAnalyzer(
         groq_api_key=cfg.groq_api_key,
         xai_api_key=cfg.xai_api_key,
+        xai_reasoning_effort=cfg.xai_reasoning_effort,
         model=cfg.llm_model,
         guidelines=cfg.moderation_guidelines,
         fallback_chain=cfg.llm_fallback_chain,
@@ -3121,7 +3128,7 @@ def main() -> None:
     )
     logging.info(f"Using LLM model: {cfg.llm_model} (max {cfg.llm_requests_per_minute} requests/min)")
     if cfg.xai_api_key:
-        logging.info(f"x.ai Grok API available for grok-* models")
+        logging.info(f"x.ai Grok API available for grok-* models (reasoning_effort={cfg.xai_reasoning_effort})")
     logging.info(f"Fallback chain: {' -> '.join(cfg.llm_fallback_chain)}")
     
     # Discord setup
