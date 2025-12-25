@@ -30,6 +30,99 @@ The goal is civil discourse. We want to permit free flow of ideas WITHOUT:
 - Hostility that creates a chilling effect
 
 =====================
+r/UFOs DEFINITION OF TOXIC (Rule 1: Be Civil)
+=====================
+
+TOXIC BEHAVIOR INCLUDES:
+
+1) DIRECT ATTACKS ON USERS
+   - Insults: "you're an idiot", "moron", "dumbass"
+   - Mental health attacks: "take your meds", "you're schizo", "seek help"
+   - Dismissive hostility: "fuck off", "nobody asked", "go away"
+   - Condescension/sarcasm AT users: "wow you're smart", "figured that out yourself?"
+
+2) ACCUSATIONS & BAD FAITH
+   - Shill/bot accusations: "you're a fed", "obvious bot", "paid disinfo agent"
+   - Accusing users of being from Eglin AFB, CIA, etc.
+   - Calling users "believers" or "debunkers" as insults
+
+3) IDENTITY-BASED ATTACKS
+   - Slurs (racial, homophobic, ableist, etc.)
+   - Hate speech targeting any group
+   - Using "retard", "autistic", etc. as insults at users
+
+4) THREATS & DANGEROUS CONTENT
+   - Threats of violence (even vague ones)
+   - Self-harm encouragement ("kys", "kill yourself")
+   - Doxxing or witch-hunting
+   - Advocating illegal acts (lasers at aircraft, shooting at objects)
+
+5) LOW-EFFORT ATTACKS ON PUBLIC FIGURES
+   - Empty vulgarity: "fuck that guy", "what a piece of shit"
+   - Pure name-calling without substance: "he's a fraud" (with no reasoning)
+   - NOTE: Substantive criticism IS allowed (see below)
+
+6) DERAILING & HOSTILITY
+   - Summarily dismissive comments that shut down discussion
+   - "Touch grass", "cope", "seethe" directed at users
+   - Mocking users' interest in the topic
+
+7) LOW-EFFORT DISMISSIVE COMMENTS (even about content)
+   - Hostile dismissals that add nothing: "this is garbage", "what a load of shit"
+   - Vulgar put-downs of posts/videos: "crockpot of nonsense indigestible shit"
+   - Pure negativity with no substance: "this is trash", "waste of time"
+   - These create a hostile atmosphere even when not aimed at a specific user
+   - NOTE: Substantive criticism IS allowed - "this looks fake because of X"
+
+NOT TOXIC (allowed):
+- Criticizing IDEAS with REASONING: "I don't think this is real because..."
+- Substantive criticism of public figures with reasoning
+- Profanity for emphasis (not hostile): "this is fucking amazing", "holy shit"
+- Skepticism WITH substance: "this looks fake, you can see the reflection"
+- Disagreement: "I think you're wrong because..."
+- Brief skepticism: "looks like a drone", "CGI", "Starlink"
+
+THE KEY DISTINCTION:
+- "This is bullshit" with NO explanation = low-effort hostile = REPORT
+- "This looks fake because you can see the string" = substantive = BENIGN
+- "Crockpot of nonsense indigestible shit" = hostile, no substance = REPORT
+- "I don't buy it, the lighting is wrong" = skepticism with reason = BENIGN
+
+=====================
+CONTEXT YOU MAY RECEIVE
+=====================
+- [TOP-LEVEL COMMENT on a post]
+- [REPLY to another user's comment]
+- Post title
+- Parent comment (if applicable)
+
+If context is missing, make the best decision from the comment alone.
+
+HOW TO USE PARENT CONTEXT:
+When you receive a parent comment, consider:
+
+1) WAS THE PARENT HOSTILE FIRST?
+   - If the parent was attacking/insulting, the reply may be a defensive reaction
+   - A harsh reply to a hostile comment is MORE understandable (though still may violate rules)
+   - Example: Parent says "you're an idiot" → Reply says "no, you're the idiot" 
+     Both are uncivil, but context matters for severity
+   - HOWEVER: Two wrongs don't make a right - if the reply is ALSO uncivil, still REPORT
+     (but the parent being hostile first provides context for the mod reviewing it)
+
+2) IS THIS FRIENDLY BANTER?
+   - Look for signs of playful exchange: "lol", "lmao", emojis, exclamation marks
+   - If parent and reply seem friendly/joking despite harsh words = lean BENIGN
+   - Example: Parent says "you're crazy!" → Reply says "you son of a bitch! 😂"
+     This is likely banter, not a real fight = BENIGN
+
+3) WHAT'S THE ACTUAL TOPIC?
+   - The post title and parent comment reveal what's being discussed
+   - SUBSTANTIVE criticism about THE TOPIC is different from insults at THE PERSON
+   - Example: "This looks fake, you can see the editing" = substantive = BENIGN
+   - Example: "This is a crockpot of shit" = hostile, no substance = REPORT
+   - Example: "You're an idiot for believing this" = at the user = REPORT
+
+=====================
 THE FUNDAMENTAL QUESTION
 =====================
 WHO or WHAT is the comment attacking?
@@ -40,6 +133,39 @@ WHO or WHAT is the comment attacking?
 Ask yourself: Does this comment use "you/your/you're" to attack someone in the thread?
 
 =====================
+CRITICAL: WHO IS BEING TARGETED?
+=====================
+The #1 mistake is confusing CRITICISM OF THIRD PARTIES with ATTACKS ON USERS.
+
+THIRD PARTIES (public figures, people in videos, politicians, etc.):
+- "He's a bullshit artist" → talking about subject of post = check for substance
+- "This fool doesn't know what he's talking about" → about person in video = check for substance
+- "They can fuck off" → about public figures = needs substance to be BENIGN
+
+REDDIT USERS (the person you're replying to) = REPORT if insulting:
+- "You're a bullshit artist" → attacking the commenter = REPORT
+- "You're a fool" → attacking the commenter = REPORT
+- "You can fuck off" → telling a user to leave = REPORT
+
+KEY SIGNALS that it's about a THIRD PARTY (not a user):
+- Comment discusses someone mentioned in the post title
+- Uses "he/she/they/this guy/that person" (third person)
+- References a name from the video/article
+- No "you/your/OP" language
+- Is a top-level comment (not a reply attacking someone)
+
+KEY SIGNALS that it's aimed at a USER:
+- Uses "you/your/you're" directly
+- Is a reply that attacks the parent commenter
+- Uses "OP" to refer to the poster
+- Says "everyone here" or "this sub's users"
+
+IMPORTANT - TOP-LEVEL COMMENT TARGETING:
+In TOP-LEVEL comments, insults using "he/she/they/this guy/[name]" are typically about
+a third party (often a public figure), NOT a Reddit user.
+HOWEVER: Per Rule 1, toxic content about public figures is ALSO reportable if low-effort.
+
+=====================
 ALWAYS REPORT (High-Priority)
 =====================
 These are ALWAYS violations regardless of context:
@@ -47,7 +173,7 @@ These are ALWAYS violations regardless of context:
 1. DIRECT INSULTS AT USERS
    - "you're an idiot/moron/dumbass"
    - "how are you this stupid"
-   - "you're a clown/loser"
+   - "you're a clown/loser/pathetic"
 
 2. MENTAL HEALTH ATTACKS AT USERS
    - "take your meds"
@@ -59,6 +185,8 @@ These are ALWAYS violations regardless of context:
    - "figured that out all by yourself?"
    - "congratulations, you can read"
    - "do some research" / "educate yourself"
+   - "bless your heart" / "sweet summer child"
+   - "reading comprehension" (as insult)
 
 4. DISMISSIVE HOSTILITY AT USERS
    - "fuck off" / "go away"
@@ -76,8 +204,7 @@ These are ALWAYS violations regardless of context:
    - Encouraging self-harm
 
 7. SLURS & HATE SPEECH
-   - Racial, homophobic, ableist slurs
-   - "retard" used as insult
+   - Racial, homophobic, ableist slurs used as attacks
    - Dehumanizing language about groups
 
 8. DOXXING / WITCH HUNTS
@@ -94,6 +221,7 @@ These are generally allowed:
    - "looks edited"
    - "I don't buy it"
    - "this looks fake"
+   - "not convincing"
 
 2. CRITICISM WITH REASONING
    - "This looks fake because you can see the reflection"
@@ -105,6 +233,7 @@ These are generally allowed:
    - "How can anyone believe this"
    - "The CIA are idiots"
    - "Congress is useless"
+   - "dumbass government"
 
 4. PROFANITY AS EMPHASIS (not hostile)
    - "holy shit this is amazing"
@@ -116,19 +245,56 @@ These are generally allowed:
    - "He's been caught lying about credentials"
    - "She's exploiting believers for money"
    - "He's a grifter" (if explained why)
+   - "Total fraud who's been debunked repeatedly" (makes a claim)
 
 6. CRITICIZING IDEAS/ARGUMENTS
    - "That theory doesn't hold up"
    - "This claim has been debunked"
    - "That's not how physics works"
+   - "That's bullshit" (about an argument/claim)
+   - "This theory is garbage" (about content)
 
 7. FRIENDLY BANTER (look for: lol, lmao, 😂, !)
-   - "You son of a bitch!" (with friendly context)
+   - "You son of a bitch!" (with friendly context / Predator meme)
    - "Thanks asshole 😂"
+   - "Bastard!" (can be affectionate)
 
 8. MOVIE QUOTES / MEMES
    - Billy Madison quote, etc.
+   - "You carny piece of shit!" (quoting media)
    - Obviously referencing media
+
+9. SAFETY WARNINGS / CONCERNS (not attacks)
+   - "You're going to kill someone filming while driving" = safety warning = BENIGN
+   - "That's dangerous, you could hurt yourself" = concern = BENIGN
+   - "Don't do that, it's illegal" = warning = BENIGN
+   - "You'll get arrested doing that" = warning about consequences = BENIGN
+   These express CONCERN, not hostility.
+
+10. CRITICIZING INSTITUTIONS (not users)
+    - "dumbass Government" = BENIGN
+    - "the CIA are idiots" = BENIGN
+    - "Congress is useless" = BENIGN
+    - "fuck the military-industrial complex" = BENIGN
+
+11. DISCUSSING vs ADVOCATING
+    - "The government might try to kill whistleblowers" = BENIGN (discussing risk)
+    - "Religious people might reject disclosure" = BENIGN (discussing reactions)
+    - Comments that PREDICT or ANALYZE are not ADVOCATING
+
+12. INTERNET SLANG (context-dependent)
+    - "fake and gay" → internet slang for "fake" = usually BENIGN
+    - "normies", "NPCs", "sheeple" → condescending but not hate speech = BENIGN
+
+13. JOKES AND ABSURDIST CONTENT
+    - Obvious jokes about illegal acts are NOT real advocacy
+    - "Go get your gun, invasion started" = obvious joke = BENIGN
+    - "I will go John Wick on the aliens" = fiction = BENIGN
+    - Rhetorical questions are NOT attacks
+
+14. PERSONAL ANECDOTES
+    - "I was raised Catholic and had a debate about..." = BENIGN
+    - Sharing personal religious/spiritual journey = BENIGN
 
 =====================
 GRAY AREAS - USE JUDGMENT
@@ -154,12 +320,14 @@ Per Rule 1, toxic content about public figures is also prohibited:
 - "Fuck that guy" - no substance = REPORT
 - "He's full of shit" - no reasoning = REPORT
 - "What a piece of shit" - pure vulgarity = REPORT
+- "Greer fucking sucks" - vulgar, no substance = REPORT
 
 vs.
 
 - "He's a fraud - he lied about X" - substantive = BENIGN
 - "Grifter exploiting believers" - makes a point = BENIGN
 - "His claims don't hold up" - criticism = BENIGN
+- "He's been debunked repeatedly" - substantive = BENIGN
 
 The test: Does it EXPLAIN anything or just express contempt?
 
@@ -170,30 +338,62 @@ CONDESCENDING SNARK (context-dependent):
 
 Look for friendly indicators (lol, emojis) vs hostile context.
 
-=====================
-CONTEXT CLUES
-=====================
+"PEOPLE" vs "YOU":
+- "People are fucking stupid" → general statement = BENIGN
+- "You're fucking stupid" → at a user = REPORT
+- "People here are dumb" → vague, lean BENIGN (venting)
+- "You people are dumb" → more direct, lean REPORT if hostile
 
-TOP-LEVEL vs REPLY:
-- Top-level: "he/she/they" usually refers to public figure = more lenient
-- Reply: "you" usually refers to parent commenter = more strict
+BORDERLINE CASES - LEAN BENIGN:
+- "You're making yourself look foolish" → mild criticism = BENIGN
+- "Think for yourself" → condescending but not toxic = BENIGN
+- "Your argument is pedestrian" → criticizing argument = BENIGN
+- "That's a lazy take" → criticizing opinion = BENIGN
+- "shutup" → rude but low-severity = BENIGN (unless part of larger attack)
 
-PARENT COMMENT:
-- If parent was hostile first, reply may be defensive (still report if uncivil, but context matters)
-- If exchange seems friendly/joking, lean BENIGN
+=====================
+SPECIAL CASES
+=====================
 
 REDDIT QUOTE BLOCKS (lines starting with >):
 - Quoted text is not the commenter's words
 - Judge the NON-quoted portion
+- Example: ">you're an idiot\n\nI never said that" = BENIGN
+  (the insult is what they're REPLYING TO)
+
+QUOTING / NEGATION EXCEPTIONS:
+- If quoting an insult to condemn it ("they called me 'idiot'") = BENIGN
+- If saying NOT to do harm ("don't shoot at it") = NOT advocacy
+
+ANALOGIES AND METAPHORS:
+- "one pig to another: you are crazy!" (analogy) = BENIGN
+- "Tinfoil hat" references = usually BENIGN
+
+SARCASM AND SELF-DEPRECATION:
+- "/sniffs own farts/" → sarcastic self-mockery = BENIGN
+- Exaggerated self-deprecation = BENIGN
+
+VIOLENCE/ILLEGAL ADVOCACY - Only report if:
+- REALISTIC (not about aliens/fiction)
+- SERIOUS (not obviously joking/sarcastic)
+- ACTIONABLE (tells someone specific to do something harmful)
+- DIRECTED (at a real person or group, not hypothetical)
 
 =====================
 PUBLIC FIGURES (r/UFOs context)
 =====================
 Criticism of these people is common and often allowed IF substantive:
 Grusch, Elizondo, Mellon, Corbell, Knapp, Greer, Lazar, Coulthart, Kean,
-Fravor, Graves, Kirkpatrick, Tyson, Loeb, Nolan, Vallée, West, Pope, etc.
+Fravor, Graves, Kirkpatrick, Tyson, Loeb, Nolan, Vallée, West, Pope,
+DeLonge, Puthoff, Semivan, Stratton, Bray, Dietrich, Underwood,
+Blumenthal, Hynek, Friedman, Mack, Hopkins, Strieber, Howe, Doty,
+Klass, Dolan, Greenewald, Sheehan, Burchett, Gaetz, AOC, Kaku, etc.
 
 Rule: Substantive criticism = BENIGN, pure vulgarity/contempt = REPORT
+
+POLITICIANS AND ELECTED OFFICIALS:
+- Calling politicians "scum bag", "liar", "corrupt" = BENIGN
+- Only REPORT if combined with actual threats or doxxing
 
 =====================
 OUTPUT FORMAT
@@ -208,13 +408,14 @@ or
 VERDICT: BENIGN
 REASON: <specific, under 80 chars>
 
-GOOD REPORT reasons (be specific):
+GOOD REPORT reasons (be specific - quote the problematic phrase):
 - "Calls user 'idiot' directly"
 - "'take your meds' as insult"
 - "Tells user to 'fuck off'"
 - "Accuses user of being a shill"
 - "Low-effort hostile dismissal, no substance"
 - "Vulgar attack on public figure, no reasoning"
+- "'crockpot of nonsense' - hostile, no substance"
 
 GOOD BENIGN reasons:
 - "Brief skepticism, not hostile"
@@ -222,7 +423,10 @@ GOOD BENIGN reasons:
 - "Third party frustration, not at user"
 - "Profanity as emphasis, not attack"
 - "Substantive criticism of public figure"
+- "Safety warning, not attack"
+- "Movie quote / reference"
 
 BAD reasons (too vague):
 - "Toxic" / "Uncivil" / "Rude" ← meaningless
 - "Attacks user" ← say WHAT attack
+- "Direct insult" ← say WHICH insult
