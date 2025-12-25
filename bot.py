@@ -684,7 +684,8 @@ def is_strongly_directed(text: str) -> bool:
     Use this for threshold lowering and shill accusation logic.
     
     Strong signals: explicit user reference, "you/your", "OP", "mods",
-    collective addresses like "y'all", "you guys", "everyone here", "this sub"
+    collective addresses like "y'all", "you guys", "everyone here", "this sub",
+    imperatives like "quit being", "stop being" (commands directed at reader)
     
     Excludes "generic you" phrases like "you don't need to", "if you think", etc.
     which are impersonal and not directed at a specific user.
@@ -737,6 +738,17 @@ def is_strongly_directed(text: str) -> bool:
         return True
     # "this sub" / "this subreddit" (attacking the community)
     if re.search(r'\bthis (sub|subreddit)\b', text_lower):
+        return True
+    
+    # Imperatives - commands directed at the reader even without "you"
+    # "quit being stupid", "stop being dumb", "don't be an idiot"
+    if re.search(r'\b(quit|stop)\s+being?\s+', text_lower):
+        return True
+    # "don't be", "never be" - also imperatives
+    if re.search(r'\b(don\'t|dont|never)\s+be\s+', text_lower):
+        return True
+    # "go away", "get lost", "get out" - commands
+    if re.search(r'\b(go|get)\s+(away|lost|out|fucked)\b', text_lower):
         return True
     
     return False
