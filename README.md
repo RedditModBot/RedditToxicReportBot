@@ -27,10 +27,10 @@ COMMENT ARRIVES
 ┌──────────────────────────────────────┐         │
 │  Step 3: ML SCORING                  │         │
 │  ┌─────────────┐  ┌─────────────┐    │         │
-│  │  Detoxify   │  │  OpenAI     │    │         │
-│  │  (local)    │  │  Moderation │    │         │
+│  │  Detoxify   │  │  External   │    │         │
+│  │  (local)    │  │  APIs       │    │         │
 │  └─────────────┘  └─────────────┘    │         │
-│  Either triggering = send to AI      │         │
+│  Any triggering = send to AI         │         │
 └──────────────────────────────────────┘         │
        │                                         │
        ├── Neither triggered ────── SKIP         │
@@ -57,9 +57,10 @@ COMMENT ARRIVES
 └──────────────────────────────────────┘
 ```
 
-**OpenAI Moderation Modes:**
-- `OPENAI_MODERATION_MODE=both` (default): Both Detoxify and OpenAI Moderation run on every comment. Either triggering sends to AI.
-- `OPENAI_MODERATION_MODE=only`: OpenAI Moderation only, skip Detoxify (saves CPU on small instances).
+**External API Modes** (for OpenAI Moderation and Perspective):
+- `MODE=confirm` (default): Only call API if Detoxify triggers (saves API calls)
+- `MODE=all`: Run on every comment (uses more API calls)
+- `MODE=only`: Skip Detoxify, use only this API
 
 ### Step-by-Step Breakdown
 
@@ -98,17 +99,29 @@ Local ML model scores comment 0.0 to 1.0. Default thresholds (configurable in `.
 
 "Directed" = contains "you", "your", "OP", or is a reply (excluding "generic you" phrases like "you don't need to", "if you think about it"). See **Detection Thresholds** section for tuning.
 
-**Optional: OpenAI Moderation API** (free supplement to Detoxify)
+**Optional: External Moderation APIs** (free supplements to Detoxify)
 
-OpenAI's free [Moderation API](https://platform.openai.com/docs/guides/moderation) detects hate, harassment, self-harm, sexual content, and violence. When enabled, both Detoxify and OpenAI Moderation run on every comment - if either flags the comment, it goes to AI review.
+You can enable one or both of these APIs to work alongside Detoxify:
 
-Configure in `.env`:
-```
+**OpenAI Moderation API** - Detects hate, harassment, self-harm, sexual, violence
+```bash
 OPENAI_API_KEY=sk-xxxxx
 OPENAI_MODERATION_ENABLED=true
+OPENAI_MODERATION_MODE=confirm  # "all", "confirm", or "only"
 OPENAI_MODERATION_THRESHOLD=0.50
-OPENAI_MODERATION_MODE=both  # "both" (default) or "only" (skip Detoxify)
+OPENAI_MODERATION_RPM=10
 ```
+
+**Google Perspective API** - Detects toxicity, insult, threat, identity_attack
+```bash
+PERSPECTIVE_API_KEY=your_key_here
+PERSPECTIVE_ENABLED=true
+PERSPECTIVE_MODE=confirm  # "all", "confirm", or "only"
+PERSPECTIVE_THRESHOLD=0.70
+PERSPECTIVE_RPM=60
+```
+
+Get Perspective API key at: https://developers.google.com/codelabs/setup-perspective-api
 
 **Step 4: AI Review**
 
@@ -268,7 +281,7 @@ Currently has **170+ generic "you" phrases** including:
 - **Context-aware** - Knows if it's a reply vs top-level, who's being targeted
 - **Public figure detection** - Understands UFO community figures (Grusch, Elizondo, Corbell, etc.)
 - **Model fallback chain** - Automatically switches models if rate limited
-- **Discord notifications** - Real-time alerts for reports, verdicts, and daily stats
+- **Discord notifications** - Real-time alerts with trigger reasons (e.g., `detoxify:insult=0.72`, `perspective:TOXICITY=0.85`)
 - **Accuracy tracking** - Logs false positives for tuning
 - **Dry run mode** - Test without actually reporting
 
@@ -280,7 +293,8 @@ Currently has **170+ generic "you" phrases** including:
 - Reddit account with mod permissions (for moderator reports)
 - Groq API key (free at https://console.groq.com)
 - x.ai API key (optional, paid - for Grok models at https://console.x.ai)
-- OpenAI API key (optional, free - for Moderation API at https://platform.openai.com)
+- OpenAI API key (optional, for Moderation API)
+- Google Perspective API key (optional, free at https://developers.google.com/codelabs/setup-perspective-api)
 - Discord webhook (optional, for notifications)
 
 ---
@@ -835,4 +849,6 @@ MIT License - feel free to use and modify.
 - [Detoxify](https://github.com/unitaryai/detoxify) for local toxicity scoring
 - [Groq](https://groq.com) for fast, free LLM inference
 - [x.ai](https://x.ai) for Grok API (optional paid alternative)
+- [OpenAI Moderation API](https://platform.openai.com/docs/guides/moderation) (optional)
+- [Google Perspective API](https://perspectiveapi.com) (optional)
 - [PRAW](https://praw.readthedocs.io) for Reddit API access
