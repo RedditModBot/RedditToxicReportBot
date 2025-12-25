@@ -284,6 +284,7 @@ class Config:
 
     # LLM
     groq_api_key: str
+    groq_reasoning_effort: str  # "low", "medium", or "high" for Groq reasoning models
     xai_api_key: str  # Optional: for x.ai Grok models
     xai_reasoning_effort: str  # "low", "medium", or "high" for Grok reasoning
     llm_model: str
@@ -388,6 +389,7 @@ def load_config() -> Config:
         subreddits=[s.strip() for s in subs.split(",") if s.strip()],
         
         groq_api_key=os.environ["GROQ_API_KEY"],
+        groq_reasoning_effort=os.getenv("GROQ_REASONING_EFFORT", "medium"),  # "low", "medium", or "high"
         xai_api_key=os.getenv("XAI_API_KEY", ""),  # Optional
         xai_reasoning_effort=os.getenv("XAI_REASONING_EFFORT", "low"),  # "low", "medium", or "high"
         llm_model=os.getenv("LLM_MODEL", "groq/compound"),
@@ -1777,9 +1779,10 @@ class LLMAnalyzer:
     def __init__(self, groq_api_key: str, model: str, guidelines: str, 
                  fallback_chain: List[str] = None, daily_limit: int = 240,
                  requests_per_minute: int = 2, xai_api_key: str = "",
-                 xai_reasoning_effort: str = "low"):
+                 xai_reasoning_effort: str = "low", groq_reasoning_effort: str = "medium"):
         # Groq client (always available)
         self.groq_client = Groq(api_key=groq_api_key)
+        self.groq_reasoning_effort = groq_reasoning_effort
         
         # x.ai client (optional, for Grok models)
         self.xai_client = None
@@ -2088,30 +2091,50 @@ class LLMAnalyzer:
                         if is_xai:
                             # x.ai API (OpenAI-compatible)
                             # Use conv_id header to improve prompt caching across requests
-                            # Use reasoning_effort for better judgment on nuanced cases
-                            response = self.xai_client.chat.completions.create(
-                                model=model_to_use,
-                                messages=[
+                            api_kwargs = {
+                                "model": model_to_use,
+                                "messages": [
                                     {"role": "system", "content": system_prompt},
                                     {"role": "user", "content": user_prompt}
                                 ],
-                                max_tokens=200,  # Increased to allow for reasoning
-                                temperature=0.1,
-                                extra_body={"reasoning_effort": self.xai_reasoning_effort},
-                                extra_headers={"x-grok-conv-id": self.xai_conv_id}
-                            )
+                                "max_tokens": 200,
+                                "temperature": 0.1,
+                                "extra_headers": {"x-grok-conv-id": self.xai_conv_id}
+                            }
+                            
+                            # Only grok-3-mini supports reasoning_effort parameter
+                            # grok-4 is always a reasoning model (no parameter needed)
+                            # grok-3 does not support reasoning_effort
+                            if "grok-3-mini" in model_to_use.lower():
+                                api_kwargs["extra_body"] = {"reasoning_effort": self.xai_reasoning_effort}
+                            
+                            response = self.xai_client.chat.completions.create(**api_kwargs)
                             raw_response = None  # No rate limit headers for x.ai
                         else:
                             # Groq API - use with_raw_response to get rate limit headers
-                            raw_response = self.groq_client.chat.completions.with_raw_response.create(
-                                model=model_to_use,
-                                messages=[
+                            groq_kwargs = {
+                                "model": model_to_use,
+                                "messages": [
                                     {"role": "system", "content": system_prompt},
                                     {"role": "user", "content": user_prompt}
                                 ],
-                                max_tokens=100,
-                                temperature=0.1,  # Low temp for consistent classification
-                            )
+                                "max_tokens": 200,
+                                "temperature": 0.1,  # Low temp for consistent classification
+                            }
+                            
+                            # Add reasoning parameters for models that support it
+                            model_lower = model_to_use.lower()
+                            if "qwen3" in model_lower or "qwen/qwen3" in model_lower:
+                                # Qwen3 uses reasoning_format, always reasons by default
+                                groq_kwargs["reasoning_format"] = "hidden"  # Don't show <think> tags
+                            elif "gpt-oss" in model_lower or "openai/gpt-oss" in model_lower:
+                                # GPT-OSS supports reasoning_effort (low/medium/high)
+                                groq_kwargs["reasoning_effort"] = self.groq_reasoning_effort
+                            elif "deepseek-r1" in model_lower:
+                                # DeepSeek R1 always reasons, hide the output
+                                groq_kwargs["reasoning_format"] = "hidden"
+                            
+                            raw_response = self.groq_client.chat.completions.with_raw_response.create(**groq_kwargs)
                             response = raw_response.parse()
                         
                         if model_to_use != models_to_try[0]:
@@ -3118,6 +3141,7 @@ def main() -> None:
     # LLM Analyzer
     analyzer = LLMAnalyzer(
         groq_api_key=cfg.groq_api_key,
+        groq_reasoning_effort=cfg.groq_reasoning_effort,
         xai_api_key=cfg.xai_api_key,
         xai_reasoning_effort=cfg.xai_reasoning_effort,
         model=cfg.llm_model,
