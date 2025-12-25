@@ -809,7 +809,9 @@ def is_strongly_directed(text: str) -> bool:
         # If any generic phrase is found, check if "you" appears outside of it
         text_check = text_lower
         for phrase in generic_phrases:
-            text_check = text_check.replace(phrase.lower(), "")
+            # Use regex with word boundaries for accurate removal
+            pattern = r'\b' + re.escape(phrase.lower()) + r'\b'
+            text_check = re.sub(pattern, '', text_check)
         
         # If "you" still appears after removing generic phrases, it's directed
         if re.search(r'\b(you|your|you\'re|youre|ur)\b', text_check):
@@ -1174,6 +1176,10 @@ def is_benign_exclamation(text: str) -> bool:
     """
     Check if comment contains a benign phrase that indicates it's not toxic.
     Only matches PHRASES (not single words) and only when NOT strongly directed at someone.
+    
+    For substring matches (vs regex), requires:
+    - Short comment (<=12 words) to avoid "no shit, you're an idiot"
+    - No direct insults present
     """
     # If strongly directed at someone, don't skip
     if is_strongly_directed(text):
@@ -1182,13 +1188,23 @@ def is_benign_exclamation(text: str) -> bool:
     # Normalize text for matching
     text_lower = text.strip().lower()
     
-    # Check regex patterns for exact matches (short exclamations like "lol", "lmao")
+    # Check regex patterns first (these are anchored, safe for any length)
     for pattern in BENIGN_PHRASES_RE:
         if pattern.match(text_lower):
             return True
     
-    # Check if any benign phrase is CONTAINED in the comment
-    # This catches "No shit everything will change" matching "no shit"
+    # For substring matching, add safety constraints:
+    # 1. Short comment only (<=12 words)
+    # 2. No direct insults present
+    word_count = len(text_lower.split())
+    if word_count > 12:
+        return False  # Too long for benign phrase skip
+    
+    # Check for insults - if present, don't skip even with benign phrase
+    if contains_direct_insult(text):
+        return False
+    
+    # Now safe to do substring matching on short, non-insulting comments
     for phrase in BENIGN_PHRASES_SET:
         if phrase in text_lower:
             return True
@@ -1499,16 +1515,16 @@ class SmartPreFilter:
         
         # Determine if we should skip Detoxify
         # Skip only if BOTH APIs are in "only" mode, or if one is "only" and the other is disabled
-        skip_detoxify = False
+        self.skip_detoxify = False
         if config.openai_moderation_mode == "only" and config.openai_moderation_enabled:
             if not config.perspective_enabled or config.perspective_mode == "only":
-                skip_detoxify = True
+                self.skip_detoxify = True
         if config.perspective_mode == "only" and config.perspective_enabled:
             if not config.openai_moderation_enabled or config.openai_moderation_mode == "only":
-                skip_detoxify = True
+                self.skip_detoxify = True
         
         # Initialize Detoxify (unless we're skipping it)
-        if not skip_detoxify:
+        if not self.skip_detoxify:
             try:
                 from detoxify import Detoxify
                 logging.info(f"Loading Detoxify model '{config.detoxify_model}'...")
@@ -1681,15 +1697,8 @@ class SmartPreFilter:
         perspective_triggered = False
         triggered_reasons = []
         
-        # Determine if we should run Detoxify
-        # Skip if both external APIs are in "only" mode
-        skip_detoxify = (
-            (self.config.openai_moderation_mode == "only" and self.config.openai_moderation_enabled) or
-            (self.config.perspective_mode == "only" and self.config.perspective_enabled)
-        )
-        
         # --- Run Detoxify (unless skipped) ---
-        if not skip_detoxify and self.available:
+        if not self.skip_detoxify and self.available:
             try:
                 results = self.model.predict(text)
                 scores = {k: float(v) for k, v in results.items()}
@@ -1733,7 +1742,7 @@ class SmartPreFilter:
             except Exception as e:
                 logging.warning(f"Detoxify scoring failed: {e}")
                 scores = {}
-        elif not skip_detoxify and not self.available:
+        elif not self.skip_detoxify and not self.available:
             # No Detoxify available - check contextual terms as fallback
             if contains_contextual_term(text) and is_strongly_directed(text):
                 detoxify_triggered = True
@@ -3134,16 +3143,16 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
     else:
         logging.info(f"ACTION: No action needed (benign)")
         # Track benign analyzed comments for prefilter optimization
-        # Extract trigger reason from detox_scores dict (e.g., {"slur": 1.0} -> "slur")
-        prefilter_trigger = ""
-        for key in detox_scores:
-            if key not in ('toxicity', 'severe_toxicity', 'obscene', 'threat', 'insult', 'identity_attack'):
-                prefilter_trigger = key  # Pattern match like "slur", "direct_insult", etc.
-                break
+        # Use _trigger_reasons if available (set by prefilter)
+        prefilter_trigger = detox_scores.get("_trigger_reasons", "")
+        
+        # Fallback: find highest Detoxify score if no trigger reasons
         if not prefilter_trigger and detox_scores:
-            # Detoxify triggered - find highest score
-            top_label = max(detox_scores, key=detox_scores.get)
-            prefilter_trigger = f"detoxify:{top_label}={detox_scores[top_label]:.2f}"
+            numeric_scores = {k: v for k, v in detox_scores.items() 
+                           if isinstance(v, (int, float)) and not k.startswith(('openai_', 'perspective_'))}
+            if numeric_scores:
+                top_label = max(numeric_scores, key=numeric_scores.get)
+                prefilter_trigger = f"detoxify:{top_label}={numeric_scores[top_label]:.2f}"
         
         track_benign_analyzed(
             comment_id=thing_id,
@@ -3361,7 +3370,7 @@ def main() -> None:
                 
                 stats = {
                     "total_processed": detox_filter.total,
-                    "sent_to_llm": detox_filter.must_escalate + detox_filter.detoxify_triggered,
+                    "sent_to_llm": detox_filter.must_escalate + detox_filter.ml_sent,
                     "reported": accuracy.get("removed", 0) + accuracy.get("pending", 0),
                     "benign": detox_filter.benign_skipped + detox_filter.pattern_skipped,
                     "accuracy": accuracy
