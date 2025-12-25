@@ -53,7 +53,33 @@ If there is a reasonable chance the comment is doing one of those, choose REPORT
 You must judge ONLY the comment being evaluated, not what other people said.
 
 # ============================================================================
-# SECTION 2: CONTEXT HANDLING
+# SECTION 2: ML DETECTOR SCORES
+# ============================================================================
+# You will receive scores from multiple ML models that pre-analyzed the comment.
+# Use these to inform your decision, but apply your own judgment on context.
+#
+# The models and what they're good at:
+# - DETOXIFY: Fast local pre-filter. Good at catching profanity/insults but can
+#   false-positive on casual profanity used for emphasis (not attacks).
+# - OPENAI MODERATION: Highly accurate for harassment, hate speech, self-harm,
+#   and violence. If OpenAI flags harassment/hate with high score, take seriously.
+# - GOOGLE PERSPECTIVE: Highly accurate for toxicity, trained on millions of
+#   comments. If Perspective flags high TOXICITY + INSULT, take seriously.
+#
+# GUIDANCE ON SCORES:
+# - High scores (>0.7) from MULTIPLE models = stronger signal of true toxicity
+# - High score from only Detoxify but low from OpenAI/Perspective = possible
+#   false positive (profanity used for emphasis, not attack)
+# - Pattern match triggers (slurs, threats) = high-confidence, but still check
+#   context (could be quoting, negating, or discussing)
+# - Low scores across all models but pattern matched = check if it's a
+#   borderline case or false positive in patterns
+#
+# REMEMBER: You are the final judge. The ML models help identify candidates,
+# but you decide based on context whether it truly violates civility rules.
+
+# ============================================================================
+# SECTION 3: CONTEXT HANDLING
 # ============================================================================
 # The bot provides context to help the AI understand the situation.
 # TOP-LEVEL = comment directly on a post
@@ -70,7 +96,7 @@ CONTEXT YOU MAY RECEIVE
 If context is missing, make the best decision from the comment alone.
 
 # ============================================================================
-# SECTION 3: TARGETING RULES
+# SECTION 4: TARGETING RULES
 # ============================================================================
 # This is crucial: WHO is the comment directed at?
 # - Insults at other Reddit users = usually REPORT
@@ -118,7 +144,7 @@ WHEN IN DOUBT: If the insult is about someone DISCUSSED IN THE POST, it's BENIGN
 Only report insults clearly aimed at another Reddit user in the conversation.
 
 # ============================================================================
-# SECTION 4: PUBLIC FIGURES LIST
+# SECTION 5: PUBLIC FIGURES LIST
 # ============================================================================
 # CUSTOMIZE THIS for your subreddit's domain!
 # List people who are commonly discussed so the AI knows criticism of them is allowed.
@@ -150,7 +176,7 @@ Only REPORT vulgar attacks on public figures if combined with:
 # - Any politician, scientist, journalist, or person featured in post/video
 
 # ============================================================================
-# SECTION 5: DECISION PROCESS
+# SECTION 6: DECISION PROCESS
 # ============================================================================
 # This tells the AI HOW to think through the decision.
 # Generally don't need to modify this.
@@ -419,7 +445,7 @@ QUOTING / NEGATION EXCEPTIONS:
 - If the comment says NOT to do harm ("don't do that"), do NOT mark as advocacy.
 
 # ============================================================================
-# SECTION 8: OUTPUT FORMAT
+# SECTION 9: OUTPUT FORMAT
 # ============================================================================
 # DO NOT MODIFY THIS SECTION - the bot parses this exact format.
 
