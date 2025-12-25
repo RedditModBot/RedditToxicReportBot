@@ -160,6 +160,54 @@ LLM_FALLBACK_CHAIN=llama-3.3-70b-versatile,grok-4-1-fast-reasoning,llama-3.1-8b-
 
 **Smart Cooldown System**: When rate limited, the bot remembers which models are unavailable and skips them automatically. Cooldowns include a 60-second buffer to ensure rate limits fully reset.
 
+**Detoxify Escalation Control**
+
+If Detoxify triggers too many false positives, you can disable it from triggering LLM review while still using it for scoring context:
+
+```bash
+# Detoxify provides scores but won't trigger LLM review on its own
+DETOXIFY_CAN_ESCALATE=false
+
+# Let OpenAI and Perspective decide what gets sent to LLM
+OPENAI_MODERATION_MODE=all
+PERSPECTIVE_MODE=all
+```
+
+This way, the LLM still sees Detoxify scores for context, but only OpenAI/Perspective trigger analysis.
+
+**Auto-Remove (Optional)**
+
+For high-confidence toxic comments, you can auto-remove them (sends to mod queue for review):
+
+```bash
+AUTO_REMOVE_ENABLED=true
+
+# Which models must agree (comma-separated): detoxify, openai, perspective
+AUTO_REMOVE_REQUIRE_MODELS=openai,perspective
+
+# How many must pass their threshold (2 = both must agree)
+AUTO_REMOVE_MIN_CONSENSUS=2
+
+# Minimum scores required
+AUTO_REMOVE_OPENAI_MIN=0.80
+AUTO_REMOVE_PERSPECTIVE_MIN=0.80
+
+# Auto-remove on pattern matches (slurs, threats)?
+AUTO_REMOVE_ON_PATTERN_MATCH=false
+```
+
+| Scenario | Action |
+|----------|--------|
+| LLM=REPORT, OpenAI=0.85, Perspective=0.90 | **AUTO-REMOVE** ✅ |
+| LLM=REPORT, OpenAI=0.60, Perspective=0.90 | Report only (OpenAI too low) |
+| LLM=REPORT, OpenAI disabled | Report only (can't reach consensus) |
+| LLM=BENIGN | No action (LLM has final say) |
+
+Auto-removed comments:
+- Go to mod queue immediately
+- Stay there until a mod approves or confirms removal
+- Get a special Discord notification (purple) with all ML scores
+
 ---
 
 ## What Gets Reported vs Ignored
@@ -286,6 +334,10 @@ Currently has **170+ generic "you" phrases** including:
 - **Quote detection** - Understands Reddit quote blocks (lines starting with ">")
 - **Context-aware** - Knows if it's a reply vs top-level, who's being targeted
 - **Public figure detection** - Understands UFO community figures (Grusch, Elizondo, Corbell, etc.)
+- **Multi-model consensus** - Combines Detoxify, OpenAI, and Perspective for better accuracy
+- **ML scores sent to LLM** - AI sees detector scores and thresholds for informed decisions
+- **Auto-remove option** - Automatically remove high-confidence toxic comments (configurable consensus)
+- **Detoxify escalation control** - Optionally disable Detoxify from triggering LLM review
 - **Model fallback chain** - Automatically switches models if rate limited
 - **Discord notifications** - Real-time alerts with trigger reasons (e.g., `detoxify:insult=0.72`, `perspective:TOXICITY=0.85`)
 - **Accuracy tracking** - Logs false positives for tuning
