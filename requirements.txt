@@ -7,8 +7,11 @@ python-dotenv>=1.0.0
 # Groq API (FREE tier!)
 groq>=0.4.0
 
-# OpenAI-compatible API (for x.ai Grok - optional)
+# OpenAI-compatible API (for x.ai Grok and OpenAI Moderation - optional)
 openai>=1.0.0
+
+# Google Perspective API (optional)
+google-api-python-client>=2.0.0
 
 # Detoxify for pre-filtering (runs locally)
 # NOTE: Install torch CPU-only FIRST before detoxify to avoid CUDA bloat
