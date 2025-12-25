@@ -460,7 +460,21 @@
       "deadass", "dead ass", "no cap", "on god", "fr fr", "frfr",
       "fuck all", "know fuck all", "knows fuck all", "dont know fuck all",
       "type shit", "type of shit", "and shit", "or some shit",
-      "blah blah", "blah blah blah"
+      "blah blah", "blah blah blah",
+      "full of shit", "full of crap",
+      "out of his ass", "out of their ass", "out of her ass", "out of my ass",
+      "up my ass", "pain in the ass", "kick ass", "bad ass", "badass"
+    ],
+
+    "profanity_as_emphasis": [
+      "is fucking", "so fucking", "really fucking", "pretty fucking",
+      "absolutely fucking", "completely fucking", "totally fucking",
+      "fucking ridiculous", "fucking stupid", "fucking insane",
+      "fucking annoying", "fucking horrible", "fucking terrible", "fucking awful",
+      "fucking amazing", "fucking incredible", "fucking awesome",
+      "fucking hilarious", "fucking funny", "fucking crazy", "fucking wild",
+      "fucking birds", "fucking balloon", "fucking drone", "fucking starlink",
+      "fucking loud", "fucking hate", "fucking love"
     ],
 
     "enthusiastic_agreement": [
@@ -490,7 +504,10 @@
       "tough shit", "tough luck",
       "horse shit", "horseshit", "load of horseshit",
       "nothing burger", "nothingburger",
-      "un-fucking-believable", "unfuckingbelievable", "abso-fucking-lutely"
+      "un-fucking-believable", "unfuckingbelievable", "abso-fucking-lutely",
+      "same bullshit", "more bullshit", "all bullshit", "just bullshit",
+      "obvious bullshit", "typical bullshit", "usual bullshit",
+      "potential bullshit", "recycled bullshit", "new age bullshit"
     ]
   },
 
