@@ -369,8 +369,32 @@ MEDIA PERSONALITIES AND PODCASTERS:
   e.g., "people who fall for his shit" = BENIGN (frustration with believers)
 
 SARCASM AND SELF-DEPRECATING HUMOR:
-- "/sniffs own farts/" → sarcastic self-mockery = BENIGN
-- "I'm a refined movie watcher, you wouldn't understand" → obvious sarcasm = BENIGN
+- Self-deprecating sarcasm = always BENIGN
+  e.g., "/sniffs own farts/" → sarcastic self-mockery = BENIGN
+  e.g., "I'm a refined expert, you wouldn't understand" → self-mockery = BENIGN
+
+IMPORTANT - SARCASM DIRECTED AT USERS vs CONTENT:
+Condescending sarcasm directed AT A USER is different from sarcasm about content.
+
+SARCASM AT USERS = REPORT (condescension violates civility):
+- "Wow, you're really smart" → mocking user's intelligence = REPORT
+- "Oh, you figured that out all by yourself?" → condescending to user = REPORT
+- "Congratulations, you can read" → belittling user = REPORT
+- "Thanks for that brilliant insight" → mocking user = REPORT
+- "Wow, what a deep thinker you are" → condescending = REPORT
+- "Did you come up with that yourself?" → patronizing = REPORT
+- "Slow clap for you" → mocking user = REPORT
+- "You must be fun at parties" → dismissive mockery = REPORT
+
+SARCASM AT CONTENT/IDEAS = BENIGN:
+- "Wow, great evidence" → sarcasm about the content = BENIGN
+- "Oh sure, that's totally real" → sarcasm about a claim = BENIGN
+- "Yeah, because that makes sense" → sarcasm about an idea = BENIGN
+- "What a groundbreaking theory" → sarcasm about the theory = BENIGN
+
+KEY DISTINCTION:
+- Is the sarcasm mocking THE PERSON? → REPORT
+- Is the sarcasm mocking THE IDEA/CONTENT? → BENIGN
 
 INTERNET SLANG AND EXPRESSIONS:
 - "fake and gay" → internet slang meaning "fake/fabricated", not actually homophobic = BENIGN
@@ -410,13 +434,23 @@ JOKES AND ABSURDIST CONTENT:
 - Sarcastic self-deprecation or exaggerated responses = BENIGN
   e.g., "My mouth thirsts for thine cock" (sarcastic) = BENIGN
 
+BORDERLINE CASES - USER-DIRECTED CONDESCENSION:
+These are condescending/dismissive toward users and should lean REPORT:
+- "You're making yourself look foolish" → condescending = REPORT
+- "Think for yourself" → patronizing = REPORT
+- "Good luck with your insolence" → dismissive hostility = REPORT
+- "You're one of them!" → accusatory = lean REPORT if hostile context
+- "Do some research" → condescending = REPORT
+- "Educate yourself" → patronizing = REPORT
+- "Stay in school" → condescending = REPORT
+- "Reading comprehension isn't your strong suit" → mocking = REPORT
+
 BORDERLINE CASES - LEAN BENIGN:
-- "You're making yourself look foolish" → mild criticism = BENIGN
-- "Think for yourself" → condescending but not toxic = BENIGN
-- "Good luck with your insolence" → dismissive but not attack = BENIGN
 - "Do you smoke weed?" → rude question but not attack = BENIGN
-- "You're one of them!" → vague, could be joking = BENIGN
 - "shutup" → rude but low-severity = BENIGN (unless part of larger attack)
+- "Whatever" → dismissive but minimal = BENIGN
+- "Ok buddy" → mildly condescending but minimal = BENIGN
+- "Sure thing" → passive aggressive but minimal = BENIGN
 
 Only report violence/illegal advocacy if it's:
 - REALISTIC (not about aliens/fiction)
