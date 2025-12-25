@@ -27,8 +27,8 @@ COMMENT ARRIVES
 ┌──────────────────────────────────────┐         │
 │  Step 3: ML SCORING                  │         │
 │  ┌─────────────┐  ┌─────────────┐    │         │
-│  │  Detoxify   │  │  MHS API    │    │         │
-│  │  (local)    │  │  (optional) │    │         │
+│  │  Detoxify   │  │  OpenAI     │    │         │
+│  │  (local)    │  │  Moderation │    │         │
 │  └─────────────┘  └─────────────┘    │         │
 │  Either triggering = send to AI      │         │
 └──────────────────────────────────────┘         │
@@ -57,9 +57,9 @@ COMMENT ARRIVES
 └──────────────────────────────────────┘
 ```
 
-**MHS Modes:**
-- `MHS_MODE=both` (default): Both Detoxify and MHS run on every comment. Either triggering sends to AI.
-- `MHS_MODE=only`: MHS only, skip Detoxify (saves CPU on small instances).
+**OpenAI Moderation Modes:**
+- `OPENAI_MODERATION_MODE=both` (default): Both Detoxify and OpenAI Moderation run on every comment. Either triggering sends to AI.
+- `OPENAI_MODERATION_MODE=only`: OpenAI Moderation only, skip Detoxify (saves CPU on small instances).
 
 ### Step-by-Step Breakdown
 
@@ -98,16 +98,16 @@ Local ML model scores comment 0.0 to 1.0. Default thresholds (configurable in `.
 
 "Directed" = contains "you", "your", "OP", or is a reply (excluding "generic you" phrases like "you don't need to", "if you think about it"). See **Detection Thresholds** section for tuning.
 
-**Optional: ModerateHatespeech API** (alternative/supplement to Detoxify)
+**Optional: OpenAI Moderation API** (free supplement to Detoxify)
 
-[ModerateHatespeech.com](https://moderatehatespeech.com) offers a RoBERTa-based model with 98% accuracy, specifically trained for Reddit moderation. When enabled, both Detoxify and MHS run on every comment - if either flags the comment, it goes to AI review.
+OpenAI's free [Moderation API](https://platform.openai.com/docs/guides/moderation) detects hate, harassment, self-harm, sexual content, and violence. When enabled, both Detoxify and OpenAI Moderation run on every comment - if either flags the comment, it goes to AI review.
 
 Configure in `.env`:
 ```
-MHS_API_KEY=your_key_here
-MHS_ENABLED=true
-MHS_THRESHOLD=0.90  # 0.5-1.0, higher = fewer false positives
-MHS_MODE=both       # "both" (default) or "only" (skip Detoxify)
+OPENAI_API_KEY=sk-xxxxx
+OPENAI_MODERATION_ENABLED=true
+OPENAI_MODERATION_THRESHOLD=0.50
+OPENAI_MODERATION_MODE=both  # "both" (default) or "only" (skip Detoxify)
 ```
 
 **Step 4: AI Review**
@@ -280,7 +280,7 @@ Currently has **170+ generic "you" phrases** including:
 - Reddit account with mod permissions (for moderator reports)
 - Groq API key (free at https://console.groq.com)
 - x.ai API key (optional, paid - for Grok models at https://console.x.ai)
-- ModerateHatespeech API key (optional, free - at https://moderatehatespeech.com/signup)
+- OpenAI API key (optional, free - for Moderation API at https://platform.openai.com)
 - Discord webhook (optional, for notifications)
 
 ---
