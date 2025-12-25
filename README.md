@@ -214,7 +214,19 @@ High-priority patterns that always go to the AI.
 }
 ```
 
-When a comment matches these AND isn't directed at a user, skip the AI entirely. Saves API calls on obviously-fine comments. The bot currently has 240+ benign phrases covering common expressions, internet slang, and profanity used for emphasis.
+When a comment matches these AND isn't directed at a user, skip the AI entirely. Saves API calls on obviously-fine comments. The bot currently has **400+ benign phrases** covering common expressions, internet slang, and profanity used for emphasis.
+
+### Generic "You" Detection
+
+The bot distinguishes between personal attacks and generic statements:
+- **"You're an idiot"** → Personal attack = escalate
+- **"You can't just ignore this"** → Generic = don't escalate
+
+Currently has **170+ generic "you" phrases** including:
+- Hypotheticals: "if you think", "when you look at"
+- Generic advice: "you don't need", "you can't expect"
+- Rhetorical: "wouldn't you", "don't you think"
+- All with apostrophe variants: "dont", "cant", "wouldnt"
 
 ### How Pattern Matching Works
 
@@ -228,8 +240,10 @@ When a comment matches these AND isn't directed at a user, skip the AI entirely.
 ## Features
 
 - **Smart pre-filtering** - Only ~5% of comments use your API quota
-- **240+ benign phrases** - Automatically skips common expressions, slang, and profanity-as-emphasis
-- **Generic "you" detection** - Distinguishes "you're an idiot" from "you don't need to be an expert"
+- **400+ benign phrases** - Automatically skips common expressions, slang, and profanity-as-emphasis
+- **170+ generic "you" phrases** - Distinguishes "you're an idiot" from "you don't need to be an expert"
+- **1,600+ total patterns** - Comprehensive coverage of slurs, threats, insults, and variations
+- **Misspelling/variant detection** - Catches "stoopid", "ur", "dont", leetspeak like "n1gg3r"
 - **Quote detection** - Understands Reddit quote blocks (lines starting with ">")
 - **Context-aware** - Knows if it's a reply vs top-level, who's being targeted
 - **Public figure detection** - Understands UFO community figures (Grusch, Elizondo, Corbell, etc.)
