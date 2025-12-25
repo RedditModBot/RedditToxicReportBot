@@ -90,6 +90,22 @@ Local ML model scores comment 0.0 to 1.0. Default thresholds (configurable in `.
 
 "Directed" = contains "you", "your", "OP", or is a reply (excluding "generic you" phrases like "you don't need to", "if you think about it"). See **Detection Thresholds** section for tuning.
 
+**Optional: ModerateHatespeech API** (alternative/supplement to Detoxify)
+
+[ModerateHatespeech.com](https://moderatehatespeech.com) offers a RoBERTa-based model with 98% accuracy, specifically trained for Reddit moderation. It can be used:
+
+- **Secondary mode** (default): Detoxify runs first, MHS catches anything it misses
+- **Primary mode**: MHS runs first, Detoxify as backup
+- **Only mode**: MHS only, skip Detoxify (saves local CPU on small instances)
+
+Configure in `.env`:
+```
+MHS_API_KEY=your_key_here
+MHS_ENABLED=true
+MHS_THRESHOLD=0.90  # 0.5-1.0, higher = fewer false positives
+MHS_MODE=secondary  # secondary, primary, or only
+```
+
 **Step 4: AI Review**
 
 Sends to Groq LLM with full context:
@@ -260,6 +276,7 @@ Currently has **170+ generic "you" phrases** including:
 - Reddit account with mod permissions (for moderator reports)
 - Groq API key (free at https://console.groq.com)
 - x.ai API key (optional, paid - for Grok models at https://console.x.ai)
+- ModerateHatespeech API key (optional, free - at https://moderatehatespeech.com/signup)
 - Discord webhook (optional, for notifications)
 
 ---
