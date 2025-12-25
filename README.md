@@ -25,11 +25,15 @@ COMMENT ARRIVES
        │                                         │
        ▼                                         │
 ┌──────────────────────────────────────┐         │
-│  Step 3: DETOXIFY ML SCORING         │         │
-│  Score 0.0 to 1.0 on toxicity        │         │
+│  Step 3: ML SCORING                  │         │
+│  ┌─────────────┐  ┌─────────────┐    │         │
+│  │  Detoxify   │  │  MHS API    │    │         │
+│  │  (local)    │  │  (optional) │    │         │
+│  └─────────────┘  └─────────────┘    │         │
+│  Either triggering = send to AI      │         │
 └──────────────────────────────────────┘         │
        │                                         │
-       ├── Below threshold ──────── SKIP         │
+       ├── Neither triggered ────── SKIP         │
        │                                         │
        ▼                                         │
 ┌──────────────────────────────────────┐         │
@@ -52,6 +56,10 @@ COMMENT ARRIVES
 │  Still up? ⚠️ False positive          │
 └──────────────────────────────────────┘
 ```
+
+**MHS Modes:**
+- `MHS_MODE=both` (default): Both Detoxify and MHS run on every comment. Either triggering sends to AI.
+- `MHS_MODE=only`: MHS only, skip Detoxify (saves CPU on small instances).
 
 ### Step-by-Step Breakdown
 
@@ -92,18 +100,14 @@ Local ML model scores comment 0.0 to 1.0. Default thresholds (configurable in `.
 
 **Optional: ModerateHatespeech API** (alternative/supplement to Detoxify)
 
-[ModerateHatespeech.com](https://moderatehatespeech.com) offers a RoBERTa-based model with 98% accuracy, specifically trained for Reddit moderation. It can be used:
-
-- **Secondary mode** (default): Detoxify runs first, MHS catches anything it misses
-- **Primary mode**: MHS runs first, Detoxify as backup
-- **Only mode**: MHS only, skip Detoxify (saves local CPU on small instances)
+[ModerateHatespeech.com](https://moderatehatespeech.com) offers a RoBERTa-based model with 98% accuracy, specifically trained for Reddit moderation. When enabled, both Detoxify and MHS run on every comment - if either flags the comment, it goes to AI review.
 
 Configure in `.env`:
 ```
 MHS_API_KEY=your_key_here
 MHS_ENABLED=true
 MHS_THRESHOLD=0.90  # 0.5-1.0, higher = fewer false positives
-MHS_MODE=secondary  # secondary, primary, or only
+MHS_MODE=both       # "both" (default) or "only" (skip Detoxify)
 ```
 
 **Step 4: AI Review**
