@@ -283,7 +283,6 @@ These are generally allowed:
     - Comments that PREDICT or ANALYZE are not ADVOCATING
 
 12. INTERNET SLANG (context-dependent)
-    - "fake and gay" → internet slang for "fake" = usually BENIGN
     - "normies", "NPCs", "sheeple" → condescending but not hate speech = BENIGN
 
 13. JOKES AND ABSURDIST CONTENT
