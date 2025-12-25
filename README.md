@@ -141,21 +141,41 @@ AI returns: `VERDICT: REPORT` or `VERDICT: BENIGN` with a reason.
 
 **Model Fallback Chain** (configurable via `LLM_FALLBACK_CHAIN` in `.env`):
 
-Default chain tries models in order until one succeeds:
-1. `groq/compound` - Smart routing, unlimited tokens (recommended primary)
-2. `llama-3.3-70b-versatile` - Best quality, 100K tokens/day
-3. `meta-llama/llama-4-maverick-17b-128e-instruct` - Good quality, 500K tokens/day
-4. `meta-llama/llama-4-scout-17b-16e-instruct` - Good quality, 500K tokens/day  
-5. `meta-llama/llama-guard-4-12b` - Content moderation specific, 500K tokens/day
-6. `llama-3.1-8b-instant` - Fast, highest limits (last resort)
+**Recommended: Use Reasoning Models**
 
-**Optional: x.ai Grok Models** (requires `XAI_API_KEY`):
-- `grok-4-1-fast-reasoning` - $0.20/$0.50 per M tokens, great for moderation
-- `grok-3` - $3.00/$15.00 per M tokens, more powerful
+Reasoning models "think" before answering, which improves accuracy on nuanced moderation decisions like distinguishing safety warnings from attacks, or sarcasm from genuine hostility.
 
-You can mix Groq (free) and x.ai (paid) models in your fallback chain. For example:
+```bash
+# Best setup: Paid Grok primary + Free Groq reasoning fallbacks
+LLM_MODEL=grok-4-0709
+LLM_FALLBACK_CHAIN=openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3-32b
+GROQ_REASONING_EFFORT=high
 ```
-LLM_FALLBACK_CHAIN=llama-3.3-70b-versatile,grok-4-1-fast-reasoning,llama-3.1-8b-instant
+
+**Reasoning Models (Recommended):**
+
+| Model | Provider | Reasoning | Cost/Limits | Notes |
+|-------|----------|-----------|-------------|-------|
+| `grok-4-0709` | x.ai (paid) | ✅ Always | ~$2-5/M in | Best quality, always reasons |
+| `openai/gpt-oss-120b` | Groq (free) | ✅ Configurable | 1K RPD, 200K TPD | Best free reasoning |
+| `openai/gpt-oss-20b` | Groq (free) | ✅ Configurable | 1K RPD, 200K TPD | Smaller, still reasons |
+| `qwen/qwen3-32b` | Groq (free) | ✅ Always | 1K RPD, 500K TPD | Good limits |
+
+**Non-Reasoning Models (faster but less accurate on gray areas):**
+
+| Model | Provider | Limits | Notes |
+|-------|----------|--------|-------|
+| `groq/compound` | Groq (free) | 250 RPD, unlimited TPD | Smart routing, no reasoning |
+| `llama-3.3-70b-versatile` | Groq (free) | 1K RPD, 100K TPD | Good quality |
+| `llama-3.1-8b-instant` | Groq (free) | 14.4K RPD, 500K TPD | Fast fallback |
+
+**Reasoning Effort Settings:**
+```bash
+# For Groq's gpt-oss models (low/medium/high)
+GROQ_REASONING_EFFORT=high
+
+# For x.ai's grok-3-mini only (grok-4 always reasons)
+#XAI_REASONING_EFFORT=high
 ```
 
 **Smart Cooldown System**: When rate limited, the bot remembers which models are unavailable and skips them automatically. Cooldowns include a 60-second buffer to ensure rate limits fully reset.
@@ -590,9 +610,30 @@ The bot tracks every report to measure how well it's performing. This helps you 
   "text": "You're an idiot...",
   "groq_reason": "Direct insult at user",
   "detoxify_score": 0.85,
+  "detoxify_scores": {"toxicity": 0.85, "insult": 0.78, "severe_toxicity": 0.42},
+  "openai_scores": {"harassment": 0.72, "hate": 0.15},
+  "perspective_scores": {"TOXICITY": 0.91, "INSULT": 0.88, "PROFANITY": 0.65},
+  "is_top_level": false,
   "reported_at": "2025-01-15T10:30:00Z",
   "outcome": "pending",      // or "removed" or "approved"
   "checked_at": ""
+}
+```
+
+**benign_analyzed.json** - Comments sent to LLM that came back benign:
+```json
+{
+  "comment_id": "t1_def456",
+  "permalink": "https://reddit.com/r/UFOs/comments/.../def456/",
+  "text": "This looks fake, you can see the reflection",
+  "llm_reason": "Brief skepticism with reasoning",
+  "detoxify_score": 0.35,
+  "detoxify_scores": {"toxicity": 0.35, "insult": 0.22},
+  "openai_scores": {"harassment": 0.08, "hate": 0.02},
+  "perspective_scores": {"TOXICITY": 0.28, "INSULT": 0.19},
+  "is_top_level": true,
+  "prefilter_trigger": "detoxify:toxicity=0.35",
+  "analyzed_at": "2025-01-15T10:30:00Z"
 }
 ```
 
@@ -602,12 +643,21 @@ The bot tracks every report to measure how well it's performing. This helps you 
   "comment_id": "t1_xyz789",
   "permalink": "https://reddit.com/r/UFOs/comments/.../xyz789/",
   "text": "This is obviously fake garbage",
-  "groq_reason": "Direct insult at user",
+  "groq_reason": "Low-effort hostile dismissal",
   "detoxify_score": 0.62,
+  "detoxify_scores": {"toxicity": 0.62, "insult": 0.45},
+  "openai_scores": {"harassment": 0.38, "hate": 0.05},
+  "perspective_scores": {"TOXICITY": 0.58, "INSULT": 0.42},
+  "is_top_level": true,
   "reported_at": "2025-01-15T08:00:00Z",
   "discovered_at": "2025-01-16T08:00:00Z"
 }
 ```
+
+The ML scores help you understand why each API flagged the comment:
+- **detoxify_scores**: Detoxify model categories (toxicity, insult, severe_toxicity, etc.)
+- **openai_scores**: OpenAI Moderation categories (harassment, hate, violence, etc.)
+- **perspective_scores**: Google Perspective categories (TOXICITY, INSULT, PROFANITY, etc.)
 
 ### Reviewing False Positives
 
@@ -787,6 +837,27 @@ sudo systemctl stop toxicreportbot
 # View recent logs
 sudo journalctl -u toxicreportbot --since "1 hour ago"
 ```
+
+### Understanding Log Output
+
+The bot logs show ML scores from all APIs for each comment:
+
+```
+# Benign comment - shows all API scores
+PREFILTER | SKIP | Detox:0.08 | OpenAI:0.02 | Persp:0.05 | 'Agree its a satellite...'
+
+# Flagged comment - shows what triggered and scores
+PREFILTER | SEND (detoxify:toxicity=0.85 + openai:harassment) [directed, reply] | Detox:0.85 | OpenAI:0.72 | Persp:0.91 | 'you idiot...'
+
+# API calls (shown before scores)
+HTTP Request: POST https://api.openai.com/v1/moderations "HTTP/1.1 200 OK"
+HTTP Request: POST https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze
+```
+
+Score meanings:
+- **Detox**: Detoxify toxicity score (0-1)
+- **OpenAI**: Max of harassment/hate from OpenAI Moderation (0-1)
+- **Persp**: Max of TOXICITY/INSULT from Google Perspective (0-1)
 
 ### Updating the Bot
 
