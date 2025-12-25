@@ -147,7 +147,7 @@
     "disability_context": ["spaz", "spastic", "special needs", "short bus"],
     "religion_mocking": ["sky fairy", "sky daddy"],
     "ufo_ambiguous": ["fake", "fakes"],
-    "ambiguous_insults": ["thick", "tool", "joke", "dense", "freak", "freaks", "creep", "creeps", "fraud", "frauds", "stupid", "dumb", "jerk"],
+    "ambiguous_insults": ["thick", "tool", "dense", "freak", "freaks", "creep", "creeps", "fraud", "frauds", "jerk"],
     
     "extremism_references": [
       "neo nazi", "neonazi", "white power", "whitepower", "swastika",
@@ -306,7 +306,7 @@
   "insults_direct": {
     "_comment": "Direct insults targeting users - escalate when directedness is detected",
     "intelligence": [
-      "idiot", "idiots", "dumbass", "dumbfuck", "dumass", "dumbshit",
+      "idiot", "idiots", "stupid", "dumb", "dumbass", "dumbfuck", "dumass", "dumbshit",
       "moron", "moronic", "imbecile",
       "brainless", "braindead", "brain dead",
       "smooth brain", "smoothbrain",
@@ -465,7 +465,6 @@
       "type shit", "type of shit", "and shit", "or some shit",
       "some evangelion shit", "some anime shit", "some sci-fi shit", "some weird shit",
       "blah blah", "blah blah blah",
-      "full of shit", "full of crap",
       "out of his ass", "out of their ass", "out of her ass", "out of my ass",
       "up my ass", "pain in the ass", "kick ass", "bad ass", "badass",
       "fake and gay", "big if true", "inb4", "copium", "hopium",
@@ -514,9 +513,6 @@
       "same bullshit", "more bullshit", "all bullshit", "just bullshit",
       "obvious bullshit", "typical bullshit", "usual bullshit",
       "potential bullshit", "recycled bullshit", "new age bullshit",
-      "so stupid", "so dumb", "this is stupid", "this is dumb", "that's stupid", "that's dumb",
-      "how stupid", "how dumb", "something stupid", "anything stupid",
-      "sounds stupid", "looks stupid", "seems stupid", "is so stupid", "is stupid",
       "i'm just dumb", "im just dumb", "i am dumb", "maybe i'm dumb", "maybe im dumb"
     ]
   },
