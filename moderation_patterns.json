@@ -502,6 +502,14 @@
       "fucking loud", "fucking hate", "fucking love"
     ],
 
+    "criticizing_ideas": [
+      "this exchange", "that exchange", "this conversation", "that conversation",
+      "this argument", "that argument", "this debate", "that debate",
+      "this discussion", "that discussion",
+      "dumbass government", "dumbass congress", "dumbass politicians",
+      "idiot government", "idiot politicians"
+    ],
+
     "enthusiastic_agreement": [
       "hell yeah", "hell yes", "fuck yeah", "fuck yes",
       "damn right", "damn straight",
@@ -637,7 +645,12 @@
       "you would think", "you would expect", "you would assume",
       "you might", "you may", "you probably",
       "i agree with you", "i believe you", "agree with you", "believe you",
-      "thank you", "thanks for", "glad you", "happy you"
+      "thank you", "thanks for", "glad you", "happy you",
+      "you will never", "you will always", "you will find", "you will see",
+      "you never know", "you always", "you ever notice", "you ever wonder",
+      "you gotta", "you gonna", "you wanna",
+      "lets you", "allows you", "gives you", "shows you", "tells you",
+      "reminds you", "makes you realize", "helps you"
     ],
 
     "_comment2": "If you want obfuscated slur matching without listing variants, generate regex from the term list using a joiner like \\W* between letters."
