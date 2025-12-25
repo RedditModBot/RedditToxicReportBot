@@ -439,7 +439,7 @@
     ]
   },
   "self_harm": {
-    "_comment": "Self-harm and suicide encouragement - ALWAYS escalate",
+    "_comment": "Self-harm and suicide encouragement - ALWAYS escalate. Removed generic 'end it' phrases that false-positive on arguments/videos.",
     "phrases": [
       "kill yourself",
       "kill urself",
@@ -452,7 +452,9 @@
       "end yourself",
       "end your life",
       "end ur life",
-      "end it",
+      "end it all",
+      "end it all already",
+      "just end it all",
       "off yourself",
       "unalive yourself",
       "neck yourself",
@@ -472,14 +474,9 @@
       "better off dead",
       "world would be better without you",
       "do us all a favor and die",
-      "do the world a favor",
-      "just end it",
       "jump off a bridge",
       "step in front of a train",
       "take a long walk off a short pier",
-      "end it all",
-      "end it already",
-      "do us all a favor",
       "better off without you",
       "nobody would miss you",
       "no one would miss you",
@@ -658,7 +655,6 @@
       "pentagon shill",
       "eglin air force",
       "eglin afb",
-      "langley",
       "disinformation agent",
       "disinfo agent",
       "nice try fed",
@@ -1357,7 +1353,6 @@
       "kick ass",
       "bad ass",
       "badass",
-      "fake and gay",
       "big if true",
       "copium",
       "hopium",
@@ -1664,7 +1659,7 @@
     "must_escalate": [
       "\\bk\\W*y\\W*s\\b",
       "\\bkill\\W*(your|ur)\\W*self\\b",
-      "\\bend\\W*(your|ur)\\W*(life|it)\\b",
+      "\\bend\\W*(your|ur)\\W*(life|it\\W*all)\\b",
       "\\b(off|unalive)\\W*(your|ur)\\W*self\\b",
       "\\b(neck|hang|rope)\\W*(your|ur)\\W*self\\b",
       "\\bdrink\\W*bleach\\b",
@@ -1686,8 +1681,11 @@
       "\\b(mass\\W*report|brigade|raid\\W+this)\\b",
       "\\b(rape)\\W*(you|u|them|her|him)\\b",
       "\\bhope\\W*you\\W*get\\W*raped\\b",
-      "\\bi\\W*?ll\\W*(find|get|hurt|kill)\\W*(you|u)\\b",
-      "\\byou\\W*?re\\W+(a\\W+)?(bot|shill|fed|glowie|spook|agent|plant)\\b"
+      "\\bn\\W*[i1!|l]\\W*g\\W*g\\W*[e3]\\W*r\\W*s?\\b",
+      "\\bf\\W*[a4@]\\W*g\\W*g?\\W*[o0]?\\W*t\\W*s?\\b",
+      "\\bk\\W*[i1!|l]\\W*k\\W*[e3]\\W*s?\\b",
+      "\\bt\\W*r\\W*[a4@]\\W*n\\W*n\\W*[iy1!]\\W*(e?s)?\\b",
+      "\\br\\W*[e3]\\W*t\\W*[a4@]\\W*r\\W*d\\W*(s|ed)?\\b"
     ],
     "directedness_check": [
       "\\bu/\\w+",
