@@ -6,6 +6,14 @@ This guide explains how `moderation_patterns.json` works and how to customize it
 
 The patterns file controls the **pre-filter** stage - fast pattern matching that happens BEFORE sending comments to the AI. This saves API calls and catches obvious cases quickly.
 
+**Current stats:**
+- **1,700+ total patterns** across all categories
+- **400+ benign skip phrases** to reduce API calls
+- **170+ generic "you" phrases** for accurate directedness detection
+- **90+ shill accusation patterns**
+- **80+ mental health insult patterns**
+- Comprehensive misspelling and variant coverage
+
 ```
 Comment arrives
       │
@@ -186,8 +194,16 @@ Phrases that indicate a comment is harmless. If matched AND not directed at a us
 - Add common expressions from your community
 - Only include PHRASES (2+ words), not single words
 - These save significant API calls on obviously-benign comments
+- Include no-apostrophe variants: "dont", "cant", "thats", etc.
 
-**Current count:** 240+ benign phrases
+**Current count:** 400+ benign phrases covering:
+- Frustration exclamations (95+)
+- Profanity as emphasis (55+)
+- Slang expressions (50+)
+- Enthusiastic agreement (40+)
+- Third-party profanity (55+)
+- UFO skepticism phrases (50+)
+- And more...
 
 ### 9. Public Figures
 
@@ -232,9 +248,16 @@ Advanced patterns for complex matching.
 }
 ```
 
-**generic_you_phrases:** These exclude "generic you" from directedness checks:
+**generic_you_phrases (170+ phrases):** These exclude "generic you" from directedness checks:
 - "you don't need a scientist" → NOT directed (generic advice)
 - "you're an idiot" → IS directed (personal attack)
+
+Includes all common patterns AND their no-apostrophe variants:
+- "you can't" + "you cant"
+- "don't you think" + "dont you think"
+- "wouldn't you" + "wouldnt you"
+
+Also includes "u" variants for common phrases.
 
 ---
 
@@ -254,6 +277,27 @@ Before matching, text is normalized:
 3. Unicode normalized (Cyrillic а → Latin a)
 4. Excessive characters collapsed (fuuuuck → fuck)
 
+### Variations and Misspellings
+
+The patterns include extensive variations to catch common evasions:
+
+**Apostrophe variants:**
+- Every "don't" has a "dont" variant
+- Every "you're" has a "youre" variant
+- Every "that's" has a "thats" variant
+
+**"You" / "u" variants:**
+- "you're a shill" + "ur a shill"
+- "you need help" + "u need help"
+
+**Common misspellings:**
+- Intelligence: "stoopid", "moran", "ideot", "dum"
+- Character: "a-hole", "ahole", "pos", "d-bag"
+
+**Internet spelling:**
+- Extended: "fuuuck", "shiit", "nooo", "whyyy"
+- Slang: "ima", "imma", "gonna", "gunna"
+
 ### Directedness Detection
 
 The bot checks if insults are aimed at users:
@@ -262,12 +306,16 @@ The bot checks if insults are aimed at users:
 - Contains: you, your, you're, ur
 - Contains: OP, mods
 - Contains: y'all, "you guys", "you people", "everyone here"
-- Contains: "this sub", "this subreddit"
+- Contains: "this sub", "this subreddit", "people here"
+- Direct address with criticism: "bro, this is stupid", "dude, that's moronic"
+- Imperatives: "quit being", "stop being", "don't be"
 
-**Excludes generic "you":**
-- "you don't need to" - generic advice
+**Excludes generic "you" (170+ phrases):**
+- "you don't need to" / "you dont need to" - generic advice
 - "if you think about it" - hypothetical
 - "you can see why" - rhetorical
+- "your soul", "your life", "your loved ones" - philosophical/abstract
+- "respect to you", "props to you" - compliments
 
 ---
 
