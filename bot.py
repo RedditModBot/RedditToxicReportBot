@@ -293,6 +293,12 @@ class Config:
     # Detoxify pre-filter
     detoxify_model: str        # "original" or "unbiased"
     
+    # ModerateHatespeech API (optional, alternative/supplement to Detoxify)
+    mhs_api_key: str           # API key for moderatehatespeech.com
+    mhs_enabled: bool          # Whether to use MHS API
+    mhs_threshold: float       # Confidence threshold (0.5-1.0), recommend 0.9+
+    mhs_mode: str              # "primary", "secondary", or "only"
+    
     # Detoxify thresholds per label
     threshold_threat: float
     threshold_severe_toxicity: float
@@ -372,6 +378,12 @@ def load_config() -> Config:
         llm_requests_per_minute=int(os.getenv("LLM_REQUESTS_PER_MINUTE", "2")),
         
         detoxify_model=os.getenv("DETOXIFY_MODEL", "original"),
+        
+        # ModerateHatespeech API settings
+        mhs_api_key=os.getenv("MHS_API_KEY", ""),
+        mhs_enabled=os.getenv("MHS_ENABLED", "false").lower() == "true",
+        mhs_threshold=float(os.getenv("MHS_THRESHOLD", "0.90")),
+        mhs_mode=os.getenv("MHS_MODE", "secondary"),  # primary, secondary, or only
         
         # Per-label thresholds (lower = more sensitive)
         threshold_threat=float(os.getenv("THRESHOLD_THREAT", "0.15")),
@@ -1024,7 +1036,127 @@ def is_benign_exclamation(text: str) -> bool:
 
 
 # ============================================
-# 6. SMART PRE-FILTER CLASS
+# 6. MODERATEHATESPEECH API CLIENT
+# ============================================
+
+class ModerateHatespeechClient:
+    """
+    Client for ModerateHatespeech.com API.
+    A RoBERTa-based toxicity classifier with 98% accuracy, specifically trained for Reddit.
+    """
+    
+    API_URL = "https://api.moderatehatespeech.com/api/v1/moderate/"
+    REPORT_URL = "https://api.moderatehatespeech.com/api/v1/report/"
+    
+    def __init__(self, api_key: str, threshold: float = 0.90):
+        self.api_key = api_key
+        self.threshold = threshold
+        self.available = bool(api_key)
+        self.total_calls = 0
+        self.flagged_count = 0
+        self.errors = 0
+        
+        if self.available:
+            logging.info(f"ModerateHatespeech API enabled (threshold={threshold})")
+        else:
+            logging.info("ModerateHatespeech API not configured (no MHS_API_KEY)")
+    
+    def check_toxicity(self, text: str) -> Tuple[bool, float, str]:
+        """
+        Check text for toxicity using ModerateHatespeech API.
+        
+        Returns:
+            (is_toxic, confidence, class_label)
+            - is_toxic: True if flagged AND confidence >= threshold
+            - confidence: 0.5-1.0 score
+            - class_label: "flag" or "normal"
+        """
+        if not self.available:
+            return False, 0.0, "unavailable"
+        
+        try:
+            self.total_calls += 1
+            
+            response = requests.post(
+                self.API_URL,
+                json={"token": self.api_key, "text": text[:5000]},  # API may have limit
+                headers={"Content-Type": "application/json"},
+                timeout=10
+            )
+            
+            if response.status_code != 200:
+                logging.warning(f"MHS API error: {response.status_code}")
+                self.errors += 1
+                return False, 0.0, "error"
+            
+            data = response.json()
+            
+            if data.get("response") != "Success":
+                logging.warning(f"MHS API response: {data.get('response')}")
+                self.errors += 1
+                return False, 0.0, "error"
+            
+            class_label = data.get("class", "normal")
+            confidence = float(data.get("confidence", 0.5))
+            
+            is_toxic = class_label == "flag" and confidence >= self.threshold
+            
+            if is_toxic:
+                self.flagged_count += 1
+                logging.debug(f"MHS flagged (conf={confidence:.2f}): {text[:50]}...")
+            
+            return is_toxic, confidence, class_label
+            
+        except requests.exceptions.Timeout:
+            logging.warning("MHS API timeout")
+            self.errors += 1
+            return False, 0.0, "timeout"
+        except Exception as e:
+            logging.warning(f"MHS API error: {e}")
+            self.errors += 1
+            return False, 0.0, "error"
+    
+    def report_error(self, text: str, should_be_flagged: bool) -> bool:
+        """
+        Report a false positive or false negative to help improve the model.
+        
+        Args:
+            text: The comment text
+            should_be_flagged: True if it should have been flagged (false negative),
+                              False if it shouldn't have been flagged (false positive)
+        
+        Returns:
+            True if report was successful
+        """
+        if not self.available:
+            return False
+        
+        try:
+            intended = 1 if should_be_flagged else 2
+            
+            response = requests.post(
+                self.REPORT_URL,
+                json={"token": self.api_key, "text": text[:5000], "intended": intended},
+                headers={"Content-Type": "application/json"},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("response") == "Message Logged":
+                    logging.info(f"MHS error reported successfully (should_flag={should_be_flagged})")
+                    return True
+            
+            logging.warning(f"MHS report failed: {response.status_code}")
+            return False
+            
+        except Exception as e:
+            logging.warning(f"MHS report error: {e}")
+            return False
+
+
+# ============================================
+# 7. SMART PRE-FILTER CLASS
 # ============================================
 
 class PreFilterResult:
@@ -1040,24 +1172,38 @@ class SmartPreFilter:
     1. Always escalates high-priority patterns (threats, slurs, accusations)
     2. Skips obviously benign enthusiasm
     3. Uses Detoxify with smart label-specific thresholds
-    4. Considers directedness for borderline cases
+    4. Optionally uses ModerateHatespeech API for additional/alternative scoring
+    5. Considers directedness for borderline cases
     """
     
     def __init__(self, config: Config):
         self.config = config
         self.model = None
         self.available = False
+        self.mhs_client = None
         
-        try:
-            from detoxify import Detoxify
-            logging.info(f"Loading Detoxify model '{config.detoxify_model}'...")
-            self.model = Detoxify(config.detoxify_model)
-            self.available = True
-            logging.info(f"Detoxify model loaded successfully")
-        except ImportError:
-            logging.warning("Detoxify not installed. Using pattern matching only.")
-        except Exception as e:
-            logging.warning(f"Failed to load Detoxify: {e}. Using pattern matching only.")
+        # Initialize ModerateHatespeech client if enabled
+        if config.mhs_enabled and config.mhs_api_key:
+            self.mhs_client = ModerateHatespeechClient(
+                api_key=config.mhs_api_key,
+                threshold=config.mhs_threshold
+            )
+            logging.info(f"MHS mode: {config.mhs_mode}")
+        
+        # Initialize Detoxify (skip if MHS mode is "only")
+        if config.mhs_mode != "only":
+            try:
+                from detoxify import Detoxify
+                logging.info(f"Loading Detoxify model '{config.detoxify_model}'...")
+                self.model = Detoxify(config.detoxify_model)
+                self.available = True
+                logging.info(f"Detoxify model loaded successfully")
+            except ImportError:
+                logging.warning("Detoxify not installed. Using pattern matching only.")
+            except Exception as e:
+                logging.warning(f"Failed to load Detoxify: {e}. Using pattern matching only.")
+        else:
+            logging.info("Detoxify disabled (MHS_MODE=only)")
         
         # Log pattern counts
         logging.info(f"SmartPreFilter patterns: {len(SLUR_WORDS)} slur words, {len(SLUR_PHRASES)} slur phrases, "
@@ -1076,6 +1222,7 @@ class SmartPreFilter:
         # Stats
         self.total = 0
         self.must_escalate = 0
+        self.mhs_flagged = 0
         self.detoxify_triggered = 0
         self.benign_skipped = 0
         self.pattern_skipped = 0
@@ -1184,8 +1331,40 @@ class SmartPreFilter:
             return False, 0.0, {"benign": 1.0}
         
         # -----------------------------------------
+        # Layer 2.5: ModerateHatespeech API (if primary mode)
+        # -----------------------------------------
+        
+        mhs_result = None
+        if self.mhs_client and self.config.mhs_mode == "primary":
+            is_toxic, confidence, class_label = self.mhs_client.check_toxicity(text)
+            mhs_result = (is_toxic, confidence, class_label)
+            
+            if is_toxic:
+                self.mhs_flagged += 1
+                logging.info(f"PREFILTER | SEND (MHS flagged: {confidence:.2f}) | '{text_preview}...'")
+                return True, confidence, {"mhs_confidence": confidence, "mhs_class": class_label}
+        
+        # -----------------------------------------
         # Layer 3: Detoxify with smart thresholds
         # -----------------------------------------
+        
+        # Skip Detoxify if MHS mode is "only"
+        if self.config.mhs_mode == "only":
+            if self.mhs_client:
+                if mhs_result is None:
+                    is_toxic, confidence, class_label = self.mhs_client.check_toxicity(text)
+                    mhs_result = (is_toxic, confidence, class_label)
+                
+                if mhs_result[0]:  # is_toxic
+                    self.mhs_flagged += 1
+                    logging.info(f"PREFILTER | SEND (MHS-only flagged: {mhs_result[1]:.2f}) | '{text_preview}...'")
+                    return True, mhs_result[1], {"mhs_confidence": mhs_result[1], "mhs_class": mhs_result[2]}
+                else:
+                    self.pattern_skipped += 1
+                    logging.info(f"PREFILTER | SKIP (MHS-only: {mhs_result[2]}, conf={mhs_result[1]:.2f}) | '{text_preview}...'")
+                    return False, mhs_result[1], {"mhs_confidence": mhs_result[1], "mhs_class": mhs_result[2]}
+            else:
+                logging.warning("MHS_MODE=only but no MHS client available")
         
         if not self.available:
             # No Detoxify - check contextual terms with directedness as fallback
@@ -1245,6 +1424,20 @@ class SmartPreFilter:
                 logging.info(f"PREFILTER | SEND (detoxify: {', '.join(triggered_labels)}) [{directed_str}, {top_level_str}] | '{text_preview}...'")
                 return True, max_score, scores
             
+            # -----------------------------------------
+            # Layer 3.5: MHS secondary check (if mode=secondary and Detoxify didn't trigger)
+            # -----------------------------------------
+            
+            if self.mhs_client and self.config.mhs_mode == "secondary":
+                is_toxic, confidence, class_label = self.mhs_client.check_toxicity(text)
+                
+                if is_toxic:
+                    self.mhs_flagged += 1
+                    scores["mhs_confidence"] = confidence
+                    scores["mhs_class"] = class_label
+                    logging.info(f"PREFILTER | SEND (MHS secondary flagged: {confidence:.2f}) | '{text_preview}...'")
+                    return True, confidence, scores
+            
             self.pattern_skipped += 1
             max_score = max(scores.values())
             top_label = max(scores, key=scores.get)
@@ -1260,13 +1453,15 @@ class SmartPreFilter:
         if self.total == 0:
             return "No comments processed yet"
         
-        sent = self.must_escalate + self.detoxify_triggered
+        sent = self.must_escalate + self.detoxify_triggered + self.mhs_flagged
         skipped = self.benign_skipped + self.pattern_skipped
         pct_skipped = (skipped / self.total) * 100
         
+        mhs_str = f", mhs: {self.mhs_flagged}" if self.mhs_client else ""
+        
         return (
             f"Total: {self.total} | "
-            f"Sent to LLM: {sent} (must_escalate: {self.must_escalate}, detoxify: {self.detoxify_triggered}) | "
+            f"Sent to LLM: {sent} (must_escalate: {self.must_escalate}, detoxify: {self.detoxify_triggered}{mhs_str}) | "
             f"Skipped: {skipped} ({pct_skipped:.1f}%)"
         )
 
