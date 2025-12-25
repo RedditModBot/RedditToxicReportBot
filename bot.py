@@ -88,7 +88,8 @@ def track_benign_analyzed(comment_id: str, permalink: str, text: str,
                           llm_reason: str, detoxify_score: float,
                           detoxify_scores: Dict[str, float],
                           is_top_level: bool = False,
-                          prefilter_trigger: str = "") -> None:
+                          prefilter_trigger: str = "",
+                          all_ml_scores: Dict[str, float] = None) -> None:
     """
     Track comments that were sent to LLM but came back BENIGN.
     Auto-cleans entries older than BENIGN_TRACKING_MAX_AGE_HOURS.
@@ -105,6 +106,16 @@ def track_benign_analyzed(comment_id: str, permalink: str, text: str,
         save_benign_analyzed(comments)  # Still save to persist cleanup
         return
     
+    # Extract OpenAI and Perspective scores from all_ml_scores
+    openai_scores = {}
+    perspective_scores = {}
+    if all_ml_scores:
+        for k, v in all_ml_scores.items():
+            if k.startswith('openai_') and isinstance(v, (int, float)):
+                openai_scores[k.replace('openai_', '')] = v
+            elif k.startswith('perspective_') and isinstance(v, (int, float)):
+                perspective_scores[k.replace('perspective_', '')] = v
+    
     comments.append({
         "comment_id": comment_id,
         "permalink": permalink,
@@ -112,6 +123,8 @@ def track_benign_analyzed(comment_id: str, permalink: str, text: str,
         "llm_reason": llm_reason,
         "detoxify_score": detoxify_score,
         "detoxify_scores": detoxify_scores,
+        "openai_scores": openai_scores,
+        "perspective_scores": perspective_scores,
         "is_top_level": is_top_level,
         "prefilter_trigger": prefilter_trigger,
         "analyzed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -123,7 +136,8 @@ def track_benign_analyzed(comment_id: str, permalink: str, text: str,
 
 def track_reported_comment(comment_id: str, permalink: str, text: str, 
                            groq_reason: str, detoxify_score: float,
-                           is_top_level: bool = False) -> None:
+                           is_top_level: bool = False,
+                           all_ml_scores: Dict[str, float] = None) -> None:
     """Add a newly reported comment to tracking"""
     comments = load_tracked_comments()
     
@@ -131,12 +145,29 @@ def track_reported_comment(comment_id: str, permalink: str, text: str,
     if any(c.get("comment_id") == comment_id for c in comments):
         return
     
+    # Extract OpenAI and Perspective scores from all_ml_scores
+    openai_scores = {}
+    perspective_scores = {}
+    detoxify_scores = {}
+    if all_ml_scores:
+        for k, v in all_ml_scores.items():
+            if k.startswith('openai_') and isinstance(v, (int, float)):
+                openai_scores[k.replace('openai_', '')] = v
+            elif k.startswith('perspective_') and isinstance(v, (int, float)):
+                perspective_scores[k.replace('perspective_', '')] = v
+            elif not k.startswith('_') and isinstance(v, (int, float)):
+                # Detoxify scores don't have a prefix
+                detoxify_scores[k] = v
+    
     comments.append({
         "comment_id": comment_id,
         "permalink": permalink,
         "text": text[:500],  # Truncate long comments
         "groq_reason": groq_reason,
         "detoxify_score": detoxify_score,
+        "detoxify_scores": detoxify_scores,
+        "openai_scores": openai_scores,
+        "perspective_scores": perspective_scores,
         "is_top_level": is_top_level,
         "reported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "outcome": "pending",
@@ -1705,7 +1736,10 @@ class SmartPreFilter:
             # Track total ML-layer sends (not double-counted)
             self.ml_sent += 1
             
-            logging.info(f"PREFILTER | SEND ({triggers}) [{directed_str}, {top_level_str}] | '{text_preview}...'")
+            # Build scores summary for logging
+            scores_summary = self._format_scores_summary(scores)
+            
+            logging.info(f"PREFILTER | SEND ({triggers}) [{directed_str}, {top_level_str}] | {scores_summary} | '{text_preview}...'")
             return True, max_score, scores
         
         # --- None triggered: SKIP ---
@@ -1719,12 +1753,39 @@ class SmartPreFilter:
             numeric_scores = {k: v for k, v in scores.items() if isinstance(v, (int, float))}
             if numeric_scores:
                 max_score = max(numeric_scores.values())
-                top_label = max(numeric_scores, key=numeric_scores.get)
-                logging.info(f"PREFILTER | SKIP (below thresholds, top: {top_label}={max_score:.2f}) | '{text_preview}...'")
+                # Build scores summary for logging
+                scores_summary = self._format_scores_summary(scores)
+                logging.info(f"PREFILTER | SKIP | {scores_summary} | '{text_preview}...'")
                 return False, max_score, scores
         
         logging.info(f"PREFILTER | SKIP (no triggers) | '{text_preview}...'")
         return False, 0.0, scores
+    
+    def _format_scores_summary(self, scores: Dict) -> str:
+        """Format scores from all APIs into a readable summary string."""
+        parts = []
+        
+        # Detoxify score (main toxicity)
+        if 'toxicity' in scores:
+            parts.append(f"Detox:{scores['toxicity']:.2f}")
+        
+        # OpenAI scores (show harassment which is most relevant)
+        openai_scores = {k: v for k, v in scores.items() if k.startswith('openai_')}
+        if openai_scores:
+            # Get the max OpenAI category
+            max_openai = max(openai_scores.values()) if openai_scores else 0
+            harassment = scores.get('openai_harassment', 0)
+            hate = scores.get('openai_hate', 0)
+            parts.append(f"OpenAI:{max(harassment, hate, max_openai):.2f}")
+        
+        # Perspective scores (show TOXICITY which is most relevant)
+        persp_scores = {k: v for k, v in scores.items() if k.startswith('perspective_')}
+        if persp_scores:
+            toxicity = scores.get('perspective_TOXICITY', 0)
+            insult = scores.get('perspective_INSULT', 0)
+            parts.append(f"Persp:{max(toxicity, insult):.2f}")
+        
+        return " | ".join(parts) if parts else "no scores"
     
     def get_stats(self) -> str:
         if self.total == 0:
@@ -2615,7 +2676,10 @@ def save_false_positives(entries: List[Dict]) -> None:
 
 def track_false_positive(comment_id: str, permalink: str, text: str,
                          groq_reason: str, detoxify_score: float,
-                         reported_at: str, is_top_level: bool = False) -> None:
+                         reported_at: str, is_top_level: bool = False,
+                         detoxify_scores: Dict[str, float] = None,
+                         openai_scores: Dict[str, float] = None,
+                         perspective_scores: Dict[str, float] = None) -> None:
     """Track a false positive (reported comment that was approved)"""
     entries = load_false_positives()
     
@@ -2629,6 +2693,9 @@ def track_false_positive(comment_id: str, permalink: str, text: str,
         "text": text[:1000],
         "groq_reason": groq_reason,
         "detoxify_score": detoxify_score,
+        "detoxify_scores": detoxify_scores or {},
+        "openai_scores": openai_scores or {},
+        "perspective_scores": perspective_scores or {},
         "is_top_level": is_top_level,
         "reported_at": reported_at,
         "discovered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -2692,7 +2759,10 @@ def check_and_track_false_positives(reddit: praw.Reddit, webhook: str = None) ->
                     groq_reason=entry.get("groq_reason", ""),
                     detoxify_score=entry.get("detoxify_score", 0),
                     reported_at=reported_at,
-                    is_top_level=entry.get("is_top_level", False)
+                    is_top_level=entry.get("is_top_level", False),
+                    detoxify_scores=entry.get("detoxify_scores", {}),
+                    openai_scores=entry.get("openai_scores", {}),
+                    perspective_scores=entry.get("perspective_scores", {})
                 )
                 new_false_positives.append(entry)
             
@@ -3009,7 +3079,8 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
             detoxify_score=detox_score,
             detoxify_scores=detox_scores,
             is_top_level=is_top_level,
-            prefilter_trigger=prefilter_trigger
+            prefilter_trigger=prefilter_trigger,
+            all_ml_scores=detox_scores  # detox_scores contains all ML scores
         )
     
     logging.info(f"={'='*60}")
@@ -3043,7 +3114,8 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
                     text=text,
                     groq_reason=result.reason,
                     detoxify_score=detox_score,
-                    is_top_level=is_top_level
+                    is_top_level=is_top_level,
+                    all_ml_scores=detox_scores  # detox_scores contains all ML scores
                 )
                 
                 # Send Discord notification for report
