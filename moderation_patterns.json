@@ -470,7 +470,25 @@
       "fake and gay", "big if true", "inb4", "copium", "hopium",
       "no biggie", "just rocks", "fucking rocks",
       "shit ton", "a shit ton", "shit load", "a shit load", "shitload",
-      "shit in the", "in the shit", "get shit done"
+      "shit in the", "in the shit", "get shit done",
+      "lol", "lmao", "rofl", "haha", "hahaha", "lolol"
+    ],
+
+    "third_party_profanity": [
+      "fuck that", "fuck this", "fuck it",
+      "screw him", "screw her", "screw them", "screw that", "screw this",
+      "damn him", "damn her", "damn them",
+      "he sucks", "she sucks", "it sucks", "that sucks", "this sucks",
+      "looks like a", "sounds like a", "seems like a",
+      "looks like an", "sounds like an", "seems like an",
+      "the dumbest thing", "the stupidest thing",
+      "stupid theory", "dumb theory", "idiotic theory",
+      "stupid idea", "dumb idea", "idiotic idea",
+      "stupid post", "dumb post", "stupid comment", "dumb comment",
+      "stupid question", "dumb question",
+      "doesn't know shit", "don't know shit", "doesn't give a shit", "don't give a shit",
+      "doesn't give a fuck", "don't give a fuck", "gives zero fucks", "give zero fucks",
+      "no fucks given", "zero fucks"
     ],
 
     "profanity_as_emphasis": [
