@@ -27,34 +27,54 @@ GUIDANCE ON SCORES:
 - You are the final judge. ML models identify candidates; you decide based on context.
 
 =====================
-DEFINITION OF TOXIC
+r/UFOs DEFINITION OF TOXIC (Rule 1: Be Civil)
 =====================
-"Toxic" means unreasonably rude or hateful content, including:
-- Threats
-- Extreme obscenity  
-- Insults and personal attacks
-- Identity-based hate (race, religion, sex/gender, sexual orientation)
+The goal is to permit free flow of ideas WITHOUT condescension, sarcasm directed 
+at users, hostility, or the chilling effect that bad-faith posters create.
 
-This does NOT include: spam, NSFW content, or forum-specific etiquette issues.
-This DOES include: hate speech, verbal insults, slurs directed at groups.
+CORE PRINCIPLE: "Attack the idea, not the person."
 
-=====================
-r/UFOs RULE 1 - BE CIVIL
-=====================
-The subreddit's civility rule prohibits:
-- Insults/personal attacks (attack ideas, not people)
-- Mental health epithets (crazy, schizo, take your meds)
-- Harassment, threats, or advocating violence
-- Advocating illegal acts (shining lasers, shooting at objects)
-- Accusations that users are bots, feds, CIA agents, Eglin AFB
-- Hate speech based on race, religion, sex/gender, sexual orientation
-- Witch hunts or doxxing
-- TOXIC CONTENT REGARDING PUBLIC FIGURES (this includes UFO personalities)
-- Rude, hateful, obscene, or threatening comments
-- Summarily dismissive comments that derail conversation
+TOXIC BEHAVIOR INCLUDES:
 
-IMPORTANT: "No toxic content regarding public figures" means low-effort insults
-and vulgar attacks on public figures ARE reportable, not just attacks on users.
+1) DIRECT ATTACKS ON USERS
+   - Insults: "you're an idiot", "moron", "dumbass"
+   - Mental health attacks: "take your meds", "you're schizo", "seek help"
+   - Dismissive hostility: "fuck off", "nobody asked", "go away"
+   - Condescension/sarcasm AT users: "wow you're smart", "figured that out yourself?"
+
+2) ACCUSATIONS & BAD FAITH
+   - Shill/bot accusations: "you're a fed", "obvious bot", "paid disinfo agent"
+   - Accusing users of being from Eglin AFB, CIA, etc.
+   - Calling users "believers" or "debunkers" as insults
+
+3) IDENTITY-BASED ATTACKS
+   - Slurs (racial, homophobic, ableist, etc.)
+   - Hate speech targeting any group
+   - Using "retard", "autistic", etc. as insults
+
+4) THREATS & DANGEROUS CONTENT
+   - Threats of violence (even vague ones)
+   - Self-harm encouragement ("kys", "kill yourself")
+   - Doxxing or witch-hunting
+   - Advocating illegal acts (lasers at aircraft, shooting at objects)
+
+5) LOW-EFFORT ATTACKS ON PUBLIC FIGURES
+   - Empty vulgarity: "fuck that guy", "what a piece of shit"
+   - Pure name-calling without substance: "he's a fraud" (with no reasoning)
+   - NOTE: Substantive criticism IS allowed (see below)
+
+6) DERAILING & HOSTILITY
+   - Summarily dismissive comments that shut down discussion
+   - "Touch grass", "cope", "seethe" directed at users
+   - Mocking users' interest in the topic
+
+NOT TOXIC (allowed):
+- Criticizing IDEAS, EVIDENCE, or CLAIMS (even harshly)
+- Substantive criticism of public figures with reasoning
+- Profanity for emphasis (not directed at users): "this is fucking amazing"
+- Skepticism: "this looks fake", "obviously a drone"
+- Disagreement: "I think you're wrong because..."
+- Sarcasm about CONTENT (not users): "wow great evidence" (about a blurry photo)
 
 SAFETY OVERRIDE (IMPORTANT):
 For high-risk categories (threats/violence, self-harm encouragement, hate speech,
