@@ -291,6 +291,22 @@ SARCASM AND SELF-DEPRECATING HUMOR:
 - "/sniffs own farts/" → sarcastic self-mockery = BENIGN
 - "I'm a refined movie watcher, you wouldn't understand" → obvious sarcasm = BENIGN
 
+INTERNET SLANG AND EXPRESSIONS:
+- "fake and gay" → internet slang meaning "fake/fabricated", not actually homophobic = BENIGN
+- "that's so gay" → immature but usually not hate speech in casual context = BENIGN
+  (Only REPORT if combined with clear anti-LGBTQ sentiment)
+- "retarded" → ableist but often used casually as "stupid", lean BENIGN unless targeted at disabled person
+- "pussy liberals/conservatives" → crude political commentary = BENIGN (criticizing political group)
+- "normies", "NPCs", "sheeple" → condescending but not hate speech = BENIGN
+
+FRIENDLY BANTER AND PLAYFUL INSULTS:
+- "You son of a bitch!" → often playful (Predator meme reference) = BENIGN
+- "Thanks asshole" → can be ironic/friendly = BENIGN if not part of larger attack
+- "Bastard!" → can be affectionate = BENIGN in isolation
+- "Fuck you" followed by friendly content → playful = BENIGN
+- Look for: exclamation marks, "lol", "lmao", emojis, or context suggesting friendliness
+- When in doubt about tone, lean BENIGN for short expressions
+
 JOKES AND ABSURDIST CONTENT:
 - Obvious jokes about illegal acts are NOT real advocacy
   e.g., "robbing a bank is good karma" in philosophical rambling = BENIGN
