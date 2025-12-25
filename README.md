@@ -84,11 +84,11 @@ Local ML model scores comment 0.0 to 1.0. Default thresholds (configurable in `.
 | threat | 0.15 | 0.15 |
 | severe_toxicity | 0.20 | 0.20 |
 | identity_attack | 0.25 | 0.25 |
-| insult | 0.40 | 0.60 |
-| toxicity | 0.40 | 0.50 |
+| insult | 0.40 | 0.65 |
+| toxicity | 0.50 | 0.65 |
 | obscene | 0.90 | 0.90 |
 
-"Directed" = contains "you", "your", "OP", or is a reply. See **Detection Thresholds** section for tuning.
+"Directed" = contains "you", "your", "OP", or is a reply (excluding "generic you" phrases like "you don't need to", "if you think about it"). See **Detection Thresholds** section for tuning.
 
 **Step 4: AI Review**
 
@@ -205,13 +205,16 @@ High-priority patterns that always go to the AI.
 
 ```json
 "benign_skip": {
-  "excitement_phrases": ["holy shit", "what the fuck", "..."],
+  "frustration_exclamations": ["holy shit", "what the fuck", "this shit", "..."],
+  "profanity_as_emphasis": ["fucking ridiculous", "so fucking", "..."],
+  "slang_expressions": ["full of shit", "fake and gay", "copium", "..."],
   "ufo_context_phrases": ["crazy footage", "insane video", "..."],
-  "skeptic_phrases": ["this is fake", "obviously a drone", "..."]
+  "skeptic_phrases": ["this is fake", "obviously a drone", "..."],
+  "genuine_questions": ["what exactly is a", "how is he a", "..."]
 }
 ```
 
-When a short comment matches these AND isn't directed at a user, skip the AI entirely. Saves API calls on obviously-fine comments.
+When a comment matches these AND isn't directed at a user, skip the AI entirely. Saves API calls on obviously-fine comments. The bot currently has 240+ benign phrases covering common expressions, internet slang, and profanity used for emphasis.
 
 ### How Pattern Matching Works
 
@@ -225,6 +228,9 @@ When a short comment matches these AND isn't directed at a user, skip the AI ent
 ## Features
 
 - **Smart pre-filtering** - Only ~5% of comments use your API quota
+- **240+ benign phrases** - Automatically skips common expressions, slang, and profanity-as-emphasis
+- **Generic "you" detection** - Distinguishes "you're an idiot" from "you don't need to be an expert"
+- **Quote detection** - Understands Reddit quote blocks (lines starting with ">")
 - **Context-aware** - Knows if it's a reply vs top-level, who's being targeted
 - **Public figure detection** - Understands UFO community figures (Grusch, Elizondo, Corbell, etc.)
 - **Model fallback chain** - Automatically switches models if rate limited
@@ -367,13 +373,14 @@ Thresholds control how sensitive the pre-filter is. Scores range from 0.0 to 1.0
 
 | Variable | Default | What it catches |
 |----------|---------|-----------------|
+| `DETOXIFY_THRESHOLD` | `0.50` | Main pre-filter - comments below this skip label checks |
 | `THRESHOLD_THREAT` | `0.15` | Threats of violence/harm |
 | `THRESHOLD_SEVERE_TOXICITY` | `0.20` | Extreme toxic content |
 | `THRESHOLD_IDENTITY_ATTACK` | `0.25` | Slurs, hate speech |
 | `THRESHOLD_INSULT_DIRECTED` | `0.40` | Insults aimed at users ("you're an idiot") |
-| `THRESHOLD_INSULT_NOT_DIRECTED` | `0.60` | General insults not at a user |
-| `THRESHOLD_TOXICITY_DIRECTED` | `0.40` | Toxic comments at users |
-| `THRESHOLD_TOXICITY_NOT_DIRECTED` | `0.50` | General toxic comments |
+| `THRESHOLD_INSULT_NOT_DIRECTED` | `0.65` | General insults not at a user |
+| `THRESHOLD_TOXICITY_DIRECTED` | `0.50` | Toxic comments at users |
+| `THRESHOLD_TOXICITY_NOT_DIRECTED` | `0.65` | General toxic comments |
 | `THRESHOLD_OBSCENE` | `0.90` | Profanity (keep high - swearing isn't always toxic) |
 | `THRESHOLD_BORDERLINE` | `0.35` | Threshold for "borderline skip" Discord alerts |
 
@@ -417,11 +424,12 @@ To create a webhook:
 | `bot.py` | Main bot code |
 | `moderation_guidelines.txt` | Instructions for the AI on what to report (customize this!) |
 | `moderation_guidelines_template.txt` | Annotated template with explanations for customization |
-| `moderation_patterns.json` | Word lists for pre-filtering (slurs, insults, etc.) |
+| `moderation_patterns.json` | Word lists for pre-filtering (slurs, insults, benign phrases, etc.) |
 | `env.template` | Template for `.env` configuration |
 | `requirements.txt` | Python dependencies |
-| `reported_comments.json` | Auto-generated tracking of reported comments |
-| `false_positives.json` | Auto-generated log of false positives |
+| `reported_comments.json` | Auto-generated tracking of reported comments and outcomes |
+| `false_positives.json` | Auto-generated log of false positives (reported but not removed) |
+| `benign_analyzed.json` | Auto-generated log of comments sent to LLM that were benign |
 
 ---
 
@@ -790,6 +798,6 @@ MIT License - feel free to use and modify.
 ## Credits
 
 - [Detoxify](https://github.com/unitaryai/detoxify) for local toxicity scoring
-- [Groq](https://groq.com) Free LLM (within limits)
+- [Groq](https://groq.com) for fast, free LLM inference
 - [x.ai](https://x.ai) for Grok API (optional paid alternative)
-- [PRAW](https://praw.readthedocs.io) Reddit API
+- [PRAW](https://praw.readthedocs.io) for Reddit API access
