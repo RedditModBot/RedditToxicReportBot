@@ -259,8 +259,13 @@ IMPORTANT - "PEOPLE" vs "YOU":
 CRITICIZING IDEAS vs ATTACKING PEOPLE:
 - "That's bullshit" about a claim or argument = BENIGN (criticizing the idea)
 - "That theory is garbage" = BENIGN (criticizing content)
-- "What a dumb take" = BENIGN (criticizing the argument, not person)
+- "This is so fucking dumb" about an exchange = BENIGN (criticizing the discussion)
+- "This exchange is idiotic" = BENIGN (criticizing the argument, not person)
 - "You're full of shit" = REPORT (attacking the person)
+
+KEY: Look at WHAT is being called dumb/stupid/idiotic:
+- The theory/idea/claim/exchange/situation = BENIGN
+- The person directly ("you", "OP", specific user) = REPORT
 
 DISCUSSING DANGER/THREATS IN CONTEXT:
 - Explaining why whistleblowers face danger = BENIGN
@@ -301,6 +306,31 @@ MILD CRITICISM OF ARGUMENTS:
 - "Your argument is pedestrian" → criticizing the argument = BENIGN
 - "That's a lazy take" → criticizing the opinion = BENIGN
 - "Ignorant take" → borderline, lean BENIGN unless combined with direct attack
+
+DISCUSSING vs ADVOCATING (CRITICAL DISTINCTION):
+DISCUSSING controversial topics is NOT the same as ADVOCATING for them.
+- "Half the population would want aliens segregated" = BENIGN (discussing hypothetical)
+- "Aliens should be segregated" = REPORT (advocating)
+- "The government might try to kill whistleblowers" = BENIGN (discussing risk)
+- "I hope they kill him" = REPORT (advocating harm)
+- "Religious people might reject disclosure" = BENIGN (discussing reactions)
+- "Religious people are idiots" = borderline (generalizing but not hate speech)
+
+Comments that PREDICT, ANALYZE, or DISCUSS societal reactions are BENIGN,
+even if the predicted reactions would be hateful. The commenter is not endorsing those views.
+
+PERSONAL ANECDOTES WITH CONTROVERSIAL TOPICS:
+- "I was raised Catholic and had a debate about..." = BENIGN (personal story)
+- "When I was a Christian, I believed..." = BENIGN (sharing experience)
+- Mentioning one's own religion, past beliefs, or personal journey = BENIGN
+- Only REPORT if attacking OTHER people for their beliefs
+
+CRITICIZING INSTITUTIONS (not users):
+- "dumbass Government" = BENIGN (criticizing institution)
+- "the CIA are idiots" = BENIGN (criticizing agency)
+- "Congress is useless" = BENIGN (criticizing body)
+- "fuck the military-industrial complex" = BENIGN (criticizing system)
+These are criticisms of institutions, not attacks on individual users.
 
 CRITICISM OF PUBLIC FIGURES' EXPERTISE:
 - Questioning someone's credentials or expertise is BENIGN
