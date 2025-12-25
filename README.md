@@ -73,7 +73,7 @@ Checks `moderation_patterns.json` for known bad patterns:
 - Shill accusations directed at users ("you're a fed")
 - Direct insults at users ("you're an idiot")
 
-If ANY match → immediately send to AI for review.
+If ANY match → immediately send to AI for review (ML scores are still collected for context).
 
 **Step 2: Benign Phrase Check**
 
@@ -123,13 +123,19 @@ PERSPECTIVE_RPM=60
 
 Get Perspective API key at: https://developers.google.com/codelabs/setup-perspective-api
 
+Note: Perspective only supports certain languages (English, Spanish, French, German, etc.). Comments in unsupported languages are silently skipped.
+
 **Step 4: AI Review**
 
 Sends to Groq LLM with full context:
 - Your moderation guidelines
 - Whether it's a `[TOP-LEVEL]` or `[REPLY]`
 - Post title and parent comment
+- **ML detector scores** from Detoxify, OpenAI, and Perspective (with thresholds)
+- Pattern match trigger reasons (if any)
 - The comment text
+
+The LLM sees which detectors flagged the comment and how confident they are, helping it make better decisions. For example, if OpenAI and Perspective both score high but Detoxify is borderline, the LLM knows it's likely truly toxic (not just profanity).
 
 AI returns: `VERDICT: REPORT` or `VERDICT: BENIGN` with a reason.
 
