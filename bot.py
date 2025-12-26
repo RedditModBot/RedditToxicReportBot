@@ -1926,17 +1926,17 @@ class SmartPreFilter:
             return True, 1.0, scores
         
         # -----------------------------------------
-        # Layer 2: Benign phrase skip
+        # Layer 2: Check for benign phrase (but don't skip ML yet)
         # -----------------------------------------
         
-        if is_benign_exclamation(text):
-            self.benign_skipped += 1
-            logging.info(f"PREFILTER | SKIP (benign phrase, not directed) | '{text_preview}...'")
-            return False, 0.0, {"benign": 1.0}
+        # Track if benign pattern matched - this will be used AFTER ML scoring
+        # to help decide whether to send to LLM
+        has_benign_pattern = is_benign_exclamation(text)
         
         # -----------------------------------------
         # Layer 3: ML Scoring (Detoxify + External APIs)
-        # Run based on mode settings, any triggering sends to AI
+        # ALWAYS run ML even if benign pattern matched - we need to catch
+        # cases like "it's a fucking plane, kill yourself"
         # -----------------------------------------
         
         scores = {}
@@ -2049,6 +2049,32 @@ class SmartPreFilter:
         # --- Decision: Send to AI if any triggered ---
         # If detoxify_can_escalate is False, detoxify alone won't trigger send
         effective_detoxify_triggered = detoxify_triggered and self.config.detoxify_can_escalate
+        
+        # Count how many ML models triggered
+        ml_triggers_count = sum([
+            1 if effective_detoxify_triggered else 0,
+            1 if openai_mod_triggered else 0,
+            1 if perspective_triggered else 0
+        ])
+        
+        # If benign pattern matched, we're more conservative about sending
+        # Detoxify alone is not enough (it triggers on any profanity)
+        # Require: OpenAI OR Perspective to also trigger, OR both to have elevated scores
+        if has_benign_pattern and ml_triggers_count > 0:
+            # Check if non-Detoxify APIs also flagged it
+            external_triggered = openai_mod_triggered or perspective_triggered
+            
+            # Get OpenAI and Perspective max scores (more reliable than Detoxify for context)
+            openai_max = max([v for k, v in scores.items() if k.startswith('openai_') and isinstance(v, float)], default=0.0)
+            persp_max = max([v for k, v in scores.items() if k.startswith('perspective_') and isinstance(v, float)], default=0.0)
+            external_max = max(openai_max, persp_max)
+            
+            # With benign pattern: require external API trigger OR high external scores (>0.60)
+            if not external_triggered and external_max < 0.60:
+                self.benign_skipped += 1
+                scores_summary = self._format_scores_summary(scores)
+                logging.info(f"PREFILTER | SKIP (benign pattern, external APIs low: OpenAI={openai_max:.2f}, Persp={persp_max:.2f}) | {scores_summary} | '{text_preview}...'")
+                return False, scores.get('toxicity', 0.0), scores
         
         if effective_detoxify_triggered or openai_mod_triggered or perspective_triggered:
             # Count detoxify triggers (for stats, even if not used for escalation)
