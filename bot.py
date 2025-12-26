@@ -1864,7 +1864,12 @@ class SmartPreFilter:
                 for label, score in scores.items():
                     threshold = thresholds.get(label, 0.7)
                     if score >= threshold:
-                        triggered_labels.append(f"{label}={score:.2f}")
+                        # For categories with directed/not-directed thresholds, show which was used
+                        if label in ('insult', 'toxicity'):
+                            dir_label = "dir" if is_directed else "notdir"
+                            triggered_labels.append(f"{label}({dir_label})={score:.2f}>{threshold:.2f}")
+                        else:
+                            triggered_labels.append(f"{label}={score:.2f}>{threshold:.2f}")
                 
                 if triggered_labels:
                     detoxify_triggered = True
