@@ -277,13 +277,14 @@ def cleanup_old_tracked(max_age_days: int = 30) -> int:
         logging.info(f"Cleaned up {removed} old tracking entries")
     return removed
 
-def get_accuracy_stats(hours: int = None) -> Dict[str, any]:
+def get_accuracy_stats(hours: int = None, reddit: 'praw.Reddit' = None) -> Dict[str, any]:
     """
     Calculate accuracy statistics from tracked comments.
     
     Args:
         hours: If provided, only count items from the last N hours.
                If None, count all items (all-time stats).
+        reddit: If provided, do live checks on pending items to get current status.
     """
     comments = load_tracked_comments()
     
@@ -301,6 +302,30 @@ def get_accuracy_stats(hours: int = None) -> Dict[str, any]:
                 except ValueError:
                     pass  # Skip malformed timestamps
         comments = filtered
+    
+    # If reddit client provided, do live checks on pending items
+    if reddit is not None:
+        import prawcore.exceptions
+        for c in comments:
+            if c.get("outcome") == "pending":
+                comment_id = c.get("comment_id", "")
+                if not comment_id:
+                    continue
+                try:
+                    clean_id = comment_id.replace("t1_", "")
+                    comment = reddit.comment(clean_id)
+                    _ = comment.body  # Force fetch
+                    
+                    if comment.body == "[removed]" or getattr(comment, 'removed', False):
+                        c["outcome"] = "removed"
+                    elif getattr(comment, 'removed_by_category', None):
+                        c["outcome"] = "removed"
+                    # Note: We don't mark as "approved" here since it might still be pending mod review
+                    # Only the background check (after 24h) marks as approved
+                except prawcore.exceptions.NotFound:
+                    c["outcome"] = "removed"  # Comment deleted/removed
+                except Exception:
+                    pass  # Keep as pending on error
     
     total = len(comments)
     pending = sum(1 for c in comments if c.get("outcome") == "pending")
@@ -3410,8 +3435,9 @@ def main() -> None:
         
         # Post current stats on startup (useful when restarting frequently)
         try:
-            accuracy_daily = get_accuracy_stats(hours=24)  # Last 24 hours
-            accuracy_alltime = get_accuracy_stats()  # All time
+            # Do live Reddit checks for recent items to get accurate removal counts
+            accuracy_daily = get_accuracy_stats(hours=24, reddit=reddit)  # Last 24 hours with live check
+            accuracy_alltime = get_accuracy_stats()  # All time (use cached outcomes)
             startup_stats = {
                 "total_processed": detox_filter.total,  # Will be 0 on fresh start
                 "sent_to_llm": detox_filter.must_escalate + detox_filter.ml_sent,
