@@ -1391,7 +1391,9 @@
       "imho",
       "fwiw",
       "afaik",
-      "iirc"
+      "iirc",
+      "who knew",
+      "lol who"
     ],
     "slang_expressions": [
       "deadass",
@@ -1447,7 +1449,18 @@
       "nocap",
       "aight",
       "like assholes",
-      "opinions are like"
+      "opinions are like",
+      "well.. shit",
+      "well shit",
+      "oh shit",
+      "aw shit",
+      "aww shit",
+      "understood shit",
+      "know shit",
+      "knew shit",
+      "talk shit",
+      "talking shit",
+      "talked shit"
     ],
     "third_party_profanity": [
       "fuck that",
@@ -1713,7 +1726,11 @@
       "holy crap",
       "holy hell",
       "goddamn",
-      "god damn"
+      "god damn",
+      "fucking podcast",
+      "fuckin podcast",
+      "fucking beholder",
+      "a fucking"
     ],
     "criticizing_ideas": [
       "this exchange",
