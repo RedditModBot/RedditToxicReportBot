@@ -51,6 +51,7 @@ class Verdict(Enum):
 TRACKING_FILE = "reported_comments.json"
 BENIGN_TRACKING_FILE = "benign_analyzed.json"
 BENIGN_TRACKING_MAX_AGE_HOURS = 48  # Auto-cleanup entries older than this
+PIPELINE_STATS_FILE = "pipeline_stats.json"
 
 def load_tracked_comments() -> List[Dict]:
     """Load tracked comments from JSON file"""
@@ -67,6 +68,22 @@ def save_tracked_comments(comments: List[Dict]) -> None:
     """Save tracked comments to JSON file"""
     with open(TRACKING_FILE, "w", encoding="utf-8") as f:
         json.dump(comments, f, indent=2)
+
+def load_pipeline_stats() -> Dict:
+    """Load persisted pipeline stats from JSON file"""
+    try:
+        with open(PIPELINE_STATS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        logging.warning(f"Could not parse {PIPELINE_STATS_FILE}, starting fresh")
+        return {}
+
+def save_pipeline_stats(stats: Dict) -> None:
+    """Save pipeline stats to JSON file"""
+    with open(PIPELINE_STATS_FILE, "w", encoding="utf-8") as f:
+        json.dump(stats, f, indent=2)
 
 def load_benign_analyzed() -> List[Dict]:
     """Load benign analyzed comments from JSON file"""
@@ -320,8 +337,18 @@ def get_accuracy_stats(hours: int = None, reddit: 'praw.Reddit' = None) -> Dict[
                         c["outcome"] = "removed"
                     elif getattr(comment, 'removed_by_category', None):
                         c["outcome"] = "removed"
-                    # Note: We don't mark as "approved" here since it might still be pending mod review
-                    # Only the background check (after 24h) marks as approved
+                    else:
+                        # Comment still exists and wasn't removed
+                        # Only mark as approved if we have positive evidence:
+                        # - num_reports == 0 means mod explicitly cleared/approved
+                        # - approved_by is set means mod clicked approve
+                        num_reports = getattr(comment, 'num_reports', None)
+                        approved_by = getattr(comment, 'approved_by', None)
+                        
+                        if num_reports == 0 or approved_by is not None:
+                            c["outcome"] = "approved"
+                        # Otherwise keep as pending - still in modqueue
+                        
                 except prawcore.exceptions.NotFound:
                     c["outcome"] = "removed"  # Comment deleted/removed
                 except Exception:
@@ -1598,15 +1625,41 @@ class SmartPreFilter:
                      f"toxicity={config.threshold_toxicity_directed}/{config.threshold_toxicity_not_directed} (dir/not), "
                      f"obscene={config.threshold_obscene}, borderline={config.threshold_borderline}")
         
-        # Stats
-        self.total = 0
-        self.must_escalate = 0
-        self.ml_sent = 0  # Comments sent due to ML layer (not double-counted)
-        self.openai_mod_flagged = 0  # Times OpenAI flagged (can overlap with others)
-        self.perspective_flagged = 0  # Times Perspective flagged (can overlap with others)
-        self.detoxify_triggered = 0  # Times Detoxify triggered (can overlap with others)
-        self.benign_skipped = 0
-        self.pattern_skipped = 0
+        # Stats - load persisted values or start fresh
+        persisted = load_pipeline_stats()
+        self.total = persisted.get("total", 0)
+        self.must_escalate = persisted.get("must_escalate", 0)
+        self.ml_sent = persisted.get("ml_sent", 0)  # Comments sent due to ML layer (not double-counted)
+        self.openai_mod_flagged = persisted.get("openai_mod_flagged", 0)  # Times OpenAI flagged (can overlap with others)
+        self.perspective_flagged = persisted.get("perspective_flagged", 0)  # Times Perspective flagged (can overlap with others)
+        self.detoxify_triggered = persisted.get("detoxify_triggered", 0)  # Times Detoxify triggered (can overlap with others)
+        self.benign_skipped = persisted.get("benign_skipped", 0)
+        self.pattern_skipped = persisted.get("pattern_skipped", 0)
+        self._stats_save_counter = 0  # Save every N comments to reduce disk writes
+        
+        if persisted:
+            logging.info(f"Loaded persisted pipeline stats: {self.total} total, {self.must_escalate + self.ml_sent} sent to LLM")
+    
+    def save_stats(self) -> None:
+        """Persist current stats to disk"""
+        save_pipeline_stats({
+            "total": self.total,
+            "must_escalate": self.must_escalate,
+            "ml_sent": self.ml_sent,
+            "openai_mod_flagged": self.openai_mod_flagged,
+            "perspective_flagged": self.perspective_flagged,
+            "detoxify_triggered": self.detoxify_triggered,
+            "benign_skipped": self.benign_skipped,
+            "pattern_skipped": self.pattern_skipped,
+            "last_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        })
+    
+    def _maybe_save_stats(self) -> None:
+        """Save stats periodically (every 10 comments) to reduce disk writes"""
+        self._stats_save_counter += 1
+        if self._stats_save_counter >= 10:
+            self.save_stats()
+            self._stats_save_counter = 0
     
     def _get_ml_scores(self, text: str, is_top_level: bool = False) -> Dict[str, float]:
         """
@@ -1655,6 +1708,7 @@ class SmartPreFilter:
             (should_send_to_llm, max_score, all_scores)
         """
         self.total += 1
+        self._maybe_save_stats()  # Persist stats periodically
         text_preview = text[:80].replace('\n', ' ')
         
         # -----------------------------------------
@@ -3531,6 +3585,7 @@ def main() -> None:
             time.sleep(10)
         except KeyboardInterrupt:
             logging.info("Shutting down by user request.")
+            detox_filter.save_stats()  # Persist final stats
             logging.info(f"Final stats - {detox_filter.get_stats()} | {analyzer.get_stats()}")
             # Print final accuracy stats
             overall = get_accuracy_stats()
@@ -3542,6 +3597,7 @@ def main() -> None:
             break
         except Exception as e:
             logging.error("Stream error: %s\n%s", e, traceback.format_exc())
+            detox_filter.save_stats()  # Persist stats on error too
             logging.info(f"Stats - {detox_filter.get_stats()} | {analyzer.get_stats()}")
             time.sleep(5)
             # Reconnect and continue
