@@ -557,6 +557,7 @@ To create a webhook:
 | `reported_comments.json` | Auto-generated tracking of reported comments and outcomes |
 | `false_positives.json` | Auto-generated log of false positives (reported but not removed) |
 | `benign_analyzed.json` | Auto-generated log of comments sent to LLM that were benign |
+| `pipeline_stats.json` | Auto-generated bot pipeline stats (persists across restarts) |
 
 ---
 
@@ -567,40 +568,95 @@ If configured, the bot sends these notifications:
 | Notification | Color | Meaning |
 |--------------|-------|---------|
 | 🤖 Bot Started | Green | Bot is running |
+| 📈 Moderation Stats | Varies | Stats summary (on startup and daily at midnight UTC) |
 | ⚪ Borderline Skip | Gray | Scored kinda high but not reviewed |
 | 🔍 Analyzing | Blue | Sending to AI for review |
 | ✅ BENIGN | Green | AI says it's fine |
 | 🚨 REPORT | Red | AI flagged it, reporting |
 | ⚠️ False Positive | Orange | Reported comment wasn't removed |
-| 📈 Daily Stats | Varies | Daily summary at midnight UTC |
 
 ---
 
-## Accuracy Tracking
+## Accuracy Tracking & Stats
 
-The bot tracks every report to measure how well it's performing. This helps you tune the system over time.
+The bot tracks every report and provides comprehensive statistics to help you tune the system over time.
 
-### How It Works
+### Stats Overview
 
-1. **When a comment is reported**, it's logged to `reported_comments.json` with:
-   - Comment ID and permalink
-   - The comment text
-   - Why it was reported (AI's reason)
-   - Detoxify score
-   - Timestamp
+The bot maintains two types of stats:
 
-2. **Every 12 hours**, the bot checks each reported comment:
-   - Fetches the comment from Reddit
-   - If removed/deleted → **True Positive** (correctly reported)
-   - If still visible → **False Positive** (incorrectly reported)
+1. **Bot Pipeline Stats** (`pipeline_stats.json`) - What the bot processed:
+   - Scanned: Total comments analyzed
+   - Benign-skipped: Comments skipped by benign phrase detection
+   - Sent to LLM: Comments sent to AI for review
+   - Persists across restarts
 
-3. **False positives are logged** to `false_positives.json` for review
+2. **Outcome Stats** (`reported_comments.json`) - What happened to reported comments:
+   - Removed: Mods removed the comment (true positive)
+   - Approved: Mods cleared the report (false positive)
+   - Pending: Awaiting mod action
 
-4. **Discord notifications** (if enabled):
-   - ⚠️ Orange alert for each new false positive
-   - 📈 Daily stats with accuracy percentage
+### Discord Stats Display
+
+On startup and daily at midnight UTC, the bot posts a stats summary:
+
+```
+📈 Moderation Stats
+
+🤖 Bot Pipeline (cumulative)
+• Scanned: 1,523
+• Benign-skipped: 892
+• Sent to LLM: 357 (23.4%)
+
+📋 Last 24 Hours
+• Escalated: 35 → Removed: 17 | Approved: 9 | Pending: 9
+
+📅 Last 7 Days
+• Escalated: 156 → Removed: 98 | Approved: 42 | Pending: 16
+
+📊 All-Time
+• Escalated: 254 → Removed: 134 | Approved: 77 | Pending: 43
+
+🎯 24h Rate    📅 7d Rate    📈 All-Time Rate
+65.4%          70.0%         63.5%
+(17/26)        (98/140)      (134/211)
+```
+
+**Confirm Rate** = % of bot escalations that mods removed (precision metric).
+
+### How Stats Are Updated
+
+**On Startup:**
+1. Bot checks all pending items from the last 7 days via Reddit API (with 0.5s rate limiting)
+2. Updates outcomes: removed, approved, or still pending
+3. Saves updates to `reported_comments.json`
+4. Posts accurate stats to Discord
+
+**Background (every 12 hours):**
+1. Checks items older than 24 hours that are still pending
+2. Updates outcomes and notifies Discord of any new false positives
+
+**How outcomes are determined:**
+- **Removed**: Comment body is `[removed]`, or `removed_by_category` is set, or comment not found (deleted)
+- **Approved**: `num_reports == 0` (mod cleared reports) or `approved_by` is set (mod clicked approve)
+- **Pending**: Comment still exists with reports not yet cleared
 
 ### Understanding the JSON Files
+
+**pipeline_stats.json** - Bot processing stats (persists across restarts):
+```json
+{
+  "total": 1523,
+  "must_escalate": 45,
+  "ml_sent": 312,
+  "openai_mod_flagged": 89,
+  "perspective_flagged": 156,
+  "detoxify_triggered": 287,
+  "benign_skipped": 892,
+  "pattern_skipped": 274,
+  "last_updated": "2025-01-15T10:30:00Z"
+}
+```
 
 **reported_comments.json** - All reported comments:
 ```json
@@ -615,10 +671,15 @@ The bot tracks every report to measure how well it's performing. This helps you 
   "perspective_scores": {"TOXICITY": 0.91, "INSULT": 0.88, "PROFANITY": 0.65},
   "is_top_level": false,
   "reported_at": "2025-01-15T10:30:00Z",
-  "outcome": "pending",      // or "removed" or "approved"
+  "outcome": "pending",
   "checked_at": ""
 }
 ```
+
+Possible `outcome` values:
+- `"pending"` - Not yet resolved by mods
+- `"removed"` - Mod removed the comment (true positive)
+- `"approved"` - Mod cleared the report (false positive)
 
 **benign_analyzed.json** - Comments sent to LLM that came back benign:
 ```json
@@ -670,18 +731,29 @@ Regularly check `false_positives.json` to understand why the bot made mistakes:
 | Domain-specific phrase flagged | Add to `benign_skip` in patterns.json |
 | Threshold too aggressive | Raise thresholds in bot.py |
 
-### Accuracy Metrics
+### Accuracy Targets
 
-The bot calculates:
-- **Accuracy %** = (True Positives) / (True Positives + False Positives) × 100
-- **Pending** = Reports not yet checked (less than 24h old)
+| Confirm Rate | Assessment | Action |
+|--------------|------------|--------|
+| 80%+ | Excellent | Bot is well-tuned |
+| 60-80% | Good | Review false positives occasionally |
+| 40-60% | Needs work | Review guidelines and thresholds |
+| Below 40% | Too aggressive | Raise thresholds significantly |
 
-A good target is **80%+ accuracy**. Below 60% means too many false positives.
+### Resetting Stats
+
+To reset stats, delete the relevant JSON files:
+- Delete `pipeline_stats.json` to reset bot pipeline counters
+- Delete `reported_comments.json` to reset outcome tracking (also resets accuracy)
+- Delete `false_positives.json` to clear false positive log
+- Delete `benign_analyzed.json` to clear benign analysis log
 
 ### Data Retention
 
 - `reported_comments.json`: Entries older than 7 days are automatically cleaned up
 - `false_positives.json`: Kept indefinitely for review (manually delete when reviewed)
+- `pipeline_stats.json`: Kept indefinitely (delete to reset)
+- `benign_analyzed.json`: Entries older than 48 hours are automatically cleaned up
 
 ---
 
