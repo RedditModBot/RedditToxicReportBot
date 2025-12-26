@@ -221,7 +221,6 @@ These are ALWAYS violations regardless of context:
    - "wow, you're really smart"
    - "figured that out all by yourself?"
    - "congratulations, you can read"
-   - "do some research" / "educate yourself"
    - "bless your heart" / "sweet summer child"
    - "reading comprehension" (as insult)
 
@@ -348,8 +347,12 @@ vs.
 - "This looks fake" - brief skepticism = BENIGN
 - "Not convincing" - opinion without hostility = BENIGN
 - "Meh" - dismissive but not hostile = BENIGN
+- "So it's pretty much worthless" - blunt but not hostile = BENIGN
 
-The test: Is it HOSTILE or just SKEPTICAL?
+The test: Is it HOSTILE or just SKEPTICAL/BLUNT?
+- Hostile = contains insults, profanity, or contempt
+- Blunt = short/direct but no actual hostility
+- Incomplete sentences or typos are NOT hostility
 
 LOW-EFFORT ATTACKS ON PUBLIC FIGURES (lean REPORT):
 Per Rule 1, toxic content about public figures is also prohibited:
@@ -372,7 +375,27 @@ CONDESCENDING SNARK (context-dependent):
 - "Whatever you say" - usually condescending = lean REPORT
 - "Ok pal" - usually condescending = lean REPORT
 
-Look for friendly indicators (lol, emojis) vs hostile context.
+Look for friendly indicators (lol, emojis, ;) wink) vs hostile context.
+
+SKEPTICISM vs CONDESCENSION:
+Skepticism about methodology or claims is NOT the same as personal attacks:
+- "You got ChatGPT to say what you wanted" = skepticism about method = BENIGN
+- "You spent an hour until it agreed with you" = criticism of approach = BENIGN
+- "That's not how LLMs work" = substantive correction = BENIGN
+- "Do some research on how these models work" = blunt advice = BENIGN
+
+vs.
+
+- "You're too stupid to understand" = personal insult = REPORT
+- "Only an idiot would believe that" = attacking the person = REPORT
+
+The test: Are they criticizing the METHOD/CLAIM or the PERSON?
+
+CONTEXTUAL JOKING (consider the post topic):
+- If a post is ABOUT "paid shills", joking about shills in comments may be banter
+- "Who's paying you?" on a post about paid actors = contextual joke = BENIGN
+- Look for context clues: emoji, ;), lol, obvious hyperbole
+- Serious accusations with no humor markers = still REPORT
 
 "PEOPLE" vs "YOU":
 - "People are fucking stupid" → general statement = BENIGN
@@ -406,8 +429,20 @@ ANALOGIES AND METAPHORS:
 - "Tinfoil hat" references = usually BENIGN
 
 SARCASM AND SELF-DEPRECATION:
-- "/sniffs own farts/" → sarcastic self-mockery = BENIGN
+- "/sniffs own farts/" - sarcastic self-mockery = BENIGN
 - Exaggerated self-deprecation = BENIGN
+- "Sorry if this is a dumb question" = polite disclaimer = BENIGN
+- "Call me crazy but..." = rhetorical framing = BENIGN
+- "Not dumb at all!" = reassurance to another user = BENIGN
+
+SARCASTIC SKEPTICISM (usually BENIGN):
+When users are skeptical of post content with sarcasm:
+- "Ah yes, the AI finally confirmed your beliefs" = skepticism = BENIGN
+- "Until finally the machine said what you wanted" = criticism of method = BENIGN
+- "Let me guess, you kept asking until it agreed" = skepticism = BENIGN
+
+These are criticizing the APPROACH, not attacking the PERSON.
+Only REPORT if it crosses into direct personal insults.
 
 VIOLENCE/ILLEGAL ADVOCACY - Only report if:
 - REALISTIC (not about aliens/fiction)
