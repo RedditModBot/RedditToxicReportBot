@@ -1381,9 +1381,21 @@ def is_benign_exclamation(text: str) -> bool:
     
     Key insight: If a specific benign pattern like "it's a fucking" matches,
     that's strong evidence the profanity is emphasis, not an attack.
+    
+    SAFETY: Even with benign patterns, we don't skip if there are:
+    - Self-harm phrases (kill yourself, kys, etc.)
+    - Threat phrases (I'll kill you, etc.)
+    - Slurs (these bypass benign skip via must_escalate anyway)
     """
     # If strongly directed at someone, don't skip
     if is_strongly_directed(text):
+        return False
+    
+    # SAFETY CHECK: Never skip if comment contains dangerous content
+    # These should always go to ML/LLM review even if benign pattern present
+    if contains_self_harm(text):
+        return False
+    if contains_threat(text):
         return False
     
     # Normalize text for matching
