@@ -294,7 +294,8 @@ def cleanup_old_tracked(max_age_days: int = 30) -> int:
         logging.info(f"Cleaned up {removed} old tracking entries")
     return removed
 
-def get_accuracy_stats(hours: int = None, reddit: 'praw.Reddit' = None) -> Dict[str, any]:
+def get_accuracy_stats(hours: int = None, reddit: 'praw.Reddit' = None, save_updates: bool = True, 
+                       rate_limit_delay: float = 0.0) -> Dict[str, any]:
     """
     Calculate accuracy statistics from tracked comments.
     
@@ -302,57 +303,87 @@ def get_accuracy_stats(hours: int = None, reddit: 'praw.Reddit' = None) -> Dict[
         hours: If provided, only count items from the last N hours.
                If None, count all items (all-time stats).
         reddit: If provided, do live checks on pending items to get current status.
+        save_updates: If True and reddit checks found updates, save them to disk.
+        rate_limit_delay: Seconds to wait between Reddit API calls (0 = no delay).
     """
-    comments = load_tracked_comments()
+    all_comments = load_tracked_comments()
     
     # Filter by time if specified
     if hours is not None:
         cutoff = time.time() - (hours * 3600)
-        filtered = []
-        for c in comments:
+        comments = []
+        for c in all_comments:
             reported_at = c.get("reported_at", "")
             if reported_at:
                 try:
                     reported_time = time.mktime(time.strptime(reported_at, "%Y-%m-%dT%H:%M:%SZ"))
                     if reported_time >= cutoff:
-                        filtered.append(c)
+                        comments.append(c)
                 except ValueError:
                     pass  # Skip malformed timestamps
-        comments = filtered
+    else:
+        comments = all_comments
     
     # If reddit client provided, do live checks on pending items
+    updates_made = False
     if reddit is not None:
         import prawcore.exceptions
-        for c in comments:
-            if c.get("outcome") == "pending":
-                comment_id = c.get("comment_id", "")
-                if not comment_id:
-                    continue
-                try:
-                    clean_id = comment_id.replace("t1_", "")
-                    comment = reddit.comment(clean_id)
-                    _ = comment.body  # Force fetch
+        pending_items = [c for c in comments if c.get("outcome") == "pending"]
+        
+        if pending_items and rate_limit_delay > 0:
+            logging.info(f"Checking {len(pending_items)} pending items with {rate_limit_delay}s delay between calls...")
+        
+        for i, c in enumerate(pending_items):
+            comment_id = c.get("comment_id", "")
+            if not comment_id:
+                continue
+            
+            # Rate limiting
+            if rate_limit_delay > 0 and i > 0:
+                time.sleep(rate_limit_delay)
+            
+            try:
+                clean_id = comment_id.replace("t1_", "")
+                comment = reddit.comment(clean_id)
+                _ = comment.body  # Force fetch
+                
+                old_outcome = c.get("outcome")
+                
+                if comment.body == "[removed]" or getattr(comment, 'removed', False):
+                    c["outcome"] = "removed"
+                    c["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                elif getattr(comment, 'removed_by_category', None):
+                    c["outcome"] = "removed"
+                    c["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                else:
+                    # Comment still exists and wasn't removed
+                    # Only mark as approved if we have positive evidence:
+                    # - num_reports == 0 means mod explicitly cleared/approved
+                    # - approved_by is set means mod clicked approve
+                    num_reports = getattr(comment, 'num_reports', None)
+                    approved_by = getattr(comment, 'approved_by', None)
                     
-                    if comment.body == "[removed]" or getattr(comment, 'removed', False):
-                        c["outcome"] = "removed"
-                    elif getattr(comment, 'removed_by_category', None):
-                        c["outcome"] = "removed"
-                    else:
-                        # Comment still exists and wasn't removed
-                        # Only mark as approved if we have positive evidence:
-                        # - num_reports == 0 means mod explicitly cleared/approved
-                        # - approved_by is set means mod clicked approve
-                        num_reports = getattr(comment, 'num_reports', None)
-                        approved_by = getattr(comment, 'approved_by', None)
-                        
-                        if num_reports == 0 or approved_by is not None:
-                            c["outcome"] = "approved"
-                        # Otherwise keep as pending - still in modqueue
-                        
-                except prawcore.exceptions.NotFound:
-                    c["outcome"] = "removed"  # Comment deleted/removed
-                except Exception:
-                    pass  # Keep as pending on error
+                    if num_reports == 0 or approved_by is not None:
+                        c["outcome"] = "approved"
+                        c["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                    # Otherwise keep as pending - still in modqueue
+                
+                if c.get("outcome") != old_outcome:
+                    updates_made = True
+                    
+            except prawcore.exceptions.NotFound:
+                c["outcome"] = "removed"  # Comment deleted/removed
+                c["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                updates_made = True
+            except Exception:
+                pass  # Keep as pending on error
+        
+        if pending_items and rate_limit_delay > 0:
+            logging.info(f"Finished checking {len(pending_items)} pending items")
+    
+    # Save updates back to disk if any were made
+    if updates_made and save_updates:
+        save_tracked_comments(all_comments)
     
     total = len(comments)
     pending = sum(1 for c in comments if c.get("outcome") == "pending")
@@ -2796,16 +2827,16 @@ def notify_discord_borderline_skip(webhook: str, comment_text: str, permalink: s
 
 def notify_discord_daily_stats(webhook: str, stats: Dict) -> None:
     """
-    Send daily statistics to Discord with clear scope separation.
+    Send statistics to Discord with clear scope separation.
     
-    Two scopes:
-    1. Bot Pipeline - What the bot scanned/processed (in-memory, resets on restart)
-    2. Resolution Outcomes - What mods decided on bot-flagged items (last 24h AND all-time)
+    Scopes:
+    1. Bot Pipeline - What the bot scanned/processed (persisted across restarts)
+    2. Resolution Outcomes - 24h, 7 days, and all-time stats
     """
     if not webhook:
         return
     
-    # --- Scope 1: Bot Pipeline Stats (in-memory, resets on restart) ---
+    # --- Scope 1: Bot Pipeline Stats ---
     total_processed = stats.get("total_processed", 0)
     sent_to_llm = stats.get("sent_to_llm", 0)
     benign_skipped = stats.get("benign", 0)
@@ -2823,6 +2854,15 @@ def notify_discord_daily_stats(webhook: str, stats: Dict) -> None:
     daily_resolved = daily_removed + daily_approved
     daily_confirm_rate = (daily_removed / daily_resolved * 100) if daily_resolved > 0 else 0
     
+    # Weekly stats (last 7 days)
+    weekly_stats = stats.get("accuracy_weekly", {})
+    weekly_escalated = weekly_stats.get("total_tracked", 0)
+    weekly_removed = weekly_stats.get("removed", 0)
+    weekly_approved = weekly_stats.get("approved", 0)
+    weekly_pending = weekly_stats.get("pending", 0)
+    weekly_resolved = weekly_removed + weekly_approved
+    weekly_confirm_rate = (weekly_removed / weekly_resolved * 100) if weekly_resolved > 0 else 0
+    
     # All-time stats
     alltime_stats = stats.get("accuracy_alltime", {})
     alltime_total = alltime_stats.get("total_tracked", 0)
@@ -2833,52 +2873,66 @@ def notify_discord_daily_stats(webhook: str, stats: Dict) -> None:
     alltime_confirm_rate = (alltime_removed / alltime_resolved * 100) if alltime_resolved > 0 else 0
     
     # Build description with clear scope separation
-    description = f"""**🤖 Bot Pipeline** (since last restart)
+    description = f"""**🤖 Bot Pipeline** (cumulative)
 • Scanned: {total_processed:,}
 • Benign-skipped: {benign_skipped:,}
 • Sent to LLM: {sent_to_llm:,} ({llm_pct:.1f}%)
 
 **📋 Last 24 Hours**
-• Escalated to mods: {daily_escalated:,}
-• Removed: {daily_removed:,} | Approved: {daily_approved:,} | Pending: {daily_pending:,}
+• Escalated: {daily_escalated:,} → Removed: {daily_removed:,} | Approved: {daily_approved:,} | Pending: {daily_pending:,}
+
+**📅 Last 7 Days**
+• Escalated: {weekly_escalated:,} → Removed: {weekly_removed:,} | Approved: {weekly_approved:,} | Pending: {weekly_pending:,}
 
 **📊 All-Time**
-• Total tracked: {alltime_total:,}
-• Removed: {alltime_removed:,} | Approved: {alltime_approved:,} | Pending: {alltime_pending:,}
+• Escalated: {alltime_total:,} → Removed: {alltime_removed:,} | Approved: {alltime_approved:,} | Pending: {alltime_pending:,}
 """
     
     # Precision fields
     if daily_resolved > 0:
         daily_precision = f"{daily_confirm_rate:.1f}%\n({daily_removed}/{daily_resolved})"
     else:
-        daily_precision = "N/A\n(no resolutions)"
+        daily_precision = "N/A"
+    
+    if weekly_resolved > 0:
+        weekly_precision = f"{weekly_confirm_rate:.1f}%\n({weekly_removed}/{weekly_resolved})"
+    else:
+        weekly_precision = "N/A"
     
     if alltime_resolved > 0:
         alltime_precision = f"{alltime_confirm_rate:.1f}%\n({alltime_removed}/{alltime_resolved})"
     else:
-        alltime_precision = "N/A\n(no resolutions)"
+        alltime_precision = "N/A"
     
     fields = [
         {
-            "name": "🎯 24h Confirm Rate", 
+            "name": "🎯 24h Rate", 
             "value": daily_precision, 
             "inline": True
         },
         {
-            "name": "📈 All-Time Confirm Rate", 
+            "name": "📅 7d Rate", 
+            "value": weekly_precision, 
+            "inline": True
+        },
+        {
+            "name": "📈 All-Time Rate", 
             "value": alltime_precision, 
             "inline": True
         },
     ]
     
-    footer_note = "Confirm Rate = % of bot escalations that mods removed (precision). Bot Pipeline resets on restart."
+    footer_note = "Confirm Rate = % of bot escalations that mods removed (precision)."
     
-    # Color based on all-time confirm rate
-    if alltime_resolved == 0:
+    # Color based on weekly confirm rate (or all-time if no weekly data)
+    rate_to_use = weekly_confirm_rate if weekly_resolved > 0 else alltime_confirm_rate
+    resolved_to_use = weekly_resolved if weekly_resolved > 0 else alltime_resolved
+    
+    if resolved_to_use == 0:
         color = 0x808080  # Gray - no data yet
-    elif alltime_confirm_rate >= 80:
+    elif rate_to_use >= 80:
         color = 0x44FF44  # Green - high precision
-    elif alltime_confirm_rate >= 60:
+    elif rate_to_use >= 60:
         color = 0xFFAA00  # Orange - moderate
     else:
         color = 0xFF4444  # Red - low precision
@@ -3489,14 +3543,28 @@ def main() -> None:
         
         # Post current stats on startup (useful when restarting frequently)
         try:
-            # Do live Reddit checks for recent items to get accurate removal counts
-            accuracy_daily = get_accuracy_stats(hours=24, reddit=reddit)  # Last 24 hours with live check
-            accuracy_alltime = get_accuracy_stats()  # All time (use cached outcomes)
+            # Do live Reddit checks on startup to get accurate stats
+            # Rate limit: 0.5s between calls to avoid hitting Reddit API limits
+            # This runs once on startup, so a few seconds delay is acceptable
+            
+            logging.info("Checking pending items for accurate stats (this may take a moment)...")
+            
+            # Check last 7 days with live Reddit calls (includes 24h items)
+            # Use rate limiting to be nice to Reddit API
+            accuracy_weekly = get_accuracy_stats(hours=168, reddit=reddit, rate_limit_delay=0.5)
+            
+            # 24h stats - just filter the already-updated data (no new API calls needed)
+            accuracy_daily = get_accuracy_stats(hours=24)
+            
+            # All-time stats - reload from disk to pick up all updates
+            accuracy_alltime = get_accuracy_stats()
+            
             startup_stats = {
-                "total_processed": detox_filter.total,  # Will be 0 on fresh start
+                "total_processed": detox_filter.total,
                 "sent_to_llm": detox_filter.must_escalate + detox_filter.ml_sent,
                 "benign": detox_filter.benign_skipped + detox_filter.pattern_skipped,
                 "accuracy_daily": accuracy_daily,
+                "accuracy_weekly": accuracy_weekly,
                 "accuracy_alltime": accuracy_alltime
             }
             notify_discord_daily_stats(cfg.discord_webhook, startup_stats)
@@ -3533,8 +3601,9 @@ def main() -> None:
             time.sleep(seconds_until_midnight + 60)  # Wait until just after midnight
             
             try:
-                # Gather stats - both daily (24h) and all-time
+                # Gather stats - daily (24h), weekly (7d), and all-time
                 accuracy_daily = get_accuracy_stats(hours=24)
+                accuracy_weekly = get_accuracy_stats(hours=168)  # 7 days
                 accuracy_alltime = get_accuracy_stats()
                 
                 stats = {
@@ -3542,6 +3611,7 @@ def main() -> None:
                     "sent_to_llm": detox_filter.must_escalate + detox_filter.ml_sent,
                     "benign": detox_filter.benign_skipped + detox_filter.pattern_skipped,
                     "accuracy_daily": accuracy_daily,
+                    "accuracy_weekly": accuracy_weekly,
                     "accuracy_alltime": accuracy_alltime
                 }
                 
