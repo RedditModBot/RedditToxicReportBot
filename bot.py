@@ -165,7 +165,8 @@ def track_reported_comment(comment_id: str, permalink: str, text: str,
                            groq_reason: str, detoxify_score: float,
                            is_top_level: bool = False,
                            all_ml_scores: Dict[str, float] = None,
-                           context_info: Dict[str, str] = None) -> None:
+                           context_info: Dict[str, str] = None,
+                           prefilter_trigger: str = "") -> None:
     """Add a newly reported comment to tracking"""
     comments = load_tracked_comments()
     
@@ -177,15 +178,21 @@ def track_reported_comment(comment_id: str, permalink: str, text: str,
     openai_scores = {}
     perspective_scores = {}
     detoxify_scores = {}
+    prefilter_trigger_from_scores = ""
     if all_ml_scores:
         for k, v in all_ml_scores.items():
             if k.startswith('openai_') and isinstance(v, (int, float)):
                 openai_scores[k.replace('openai_', '')] = v
             elif k.startswith('perspective_') and isinstance(v, (int, float)):
                 perspective_scores[k.replace('perspective_', '')] = v
+            elif k == '_trigger_reasons':
+                prefilter_trigger_from_scores = str(v)
             elif not k.startswith('_') and isinstance(v, (int, float)):
                 # Detoxify scores don't have a prefix
                 detoxify_scores[k] = v
+    
+    # Use explicit prefilter_trigger if provided, else extract from scores
+    final_trigger = prefilter_trigger or prefilter_trigger_from_scores
     
     # Extract context info
     context_info = context_info or {}
@@ -200,6 +207,7 @@ def track_reported_comment(comment_id: str, permalink: str, text: str,
         "openai_scores": openai_scores,
         "perspective_scores": perspective_scores,
         "is_top_level": is_top_level,
+        "prefilter_trigger": final_trigger,
         "post_title": context_info.get("post_title", ""),
         "parent_context": context_info.get("parent_context", "")[:500],
         "parent_author": context_info.get("parent_author", ""),
@@ -218,6 +226,11 @@ def check_reported_outcomes(reddit: praw.Reddit, min_age_hours: int = 24) -> Dic
     """
     Check outcomes of pending reported comments.
     Returns stats dict with counts.
+    
+    Outcomes:
+    - removed: Comment was removed (by mod, automod, admin, or deleted)
+    - approved: Comment was explicitly approved (num_reports==0 or approved_by set)
+    - pending: Still in modqueue, no action taken yet
     """
     comments = load_tracked_comments()
     now = time.time()
@@ -253,18 +266,31 @@ def check_reported_outcomes(reddit: praw.Reddit, min_age_hours: int = 24) -> Dic
             _ = comment.body
             
             # Check if removed
-            # removed_by_category is set if removed by mod/automod/admin
-            # If comment.body is "[removed]" it was removed
+            # removed_by_category values: moderator, automod_filtered, deleted, author, 
+            # anti_evil_ops, content_takedown, reddit
+            removed_by = getattr(comment, 'removed_by_category', None)
+            
             if comment.body == "[removed]" or getattr(comment, 'removed', False):
                 entry["outcome"] = "removed"
+                entry["removed_by"] = removed_by or "unknown"
                 stats["removed"] += 1
-            elif getattr(comment, 'removed_by_category', None):
+            elif removed_by:
                 entry["outcome"] = "removed"
+                entry["removed_by"] = removed_by
                 stats["removed"] += 1
             else:
-                # Comment still exists, was approved or not actioned
-                entry["outcome"] = "approved"
-                stats["approved"] += 1
+                # Comment still exists - check for positive approval evidence
+                num_reports = getattr(comment, 'num_reports', None)
+                approved_by = getattr(comment, 'approved_by', None)
+                
+                if num_reports == 0 or approved_by is not None:
+                    # Mod explicitly approved or cleared reports
+                    entry["outcome"] = "approved"
+                    stats["approved"] += 1
+                else:
+                    # Still in modqueue, no action taken
+                    stats["still_pending"] += 1
+                    continue  # Don't update checked_at, keep as pending
             
             entry["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             stats["checked"] += 1
@@ -272,6 +298,7 @@ def check_reported_outcomes(reddit: praw.Reddit, min_age_hours: int = 24) -> Dic
         except prawcore.exceptions.NotFound:
             # Comment was deleted (by user or mod)
             entry["outcome"] = "removed"
+            entry["removed_by"] = "deleted_or_notfound"
             entry["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             stats["removed"] += 1
             stats["checked"] += 1
@@ -368,12 +395,15 @@ def get_accuracy_stats(hours: int = None, reddit: 'praw.Reddit' = None, save_upd
                 _ = comment.body  # Force fetch
                 
                 old_outcome = c.get("outcome")
+                removed_by = getattr(comment, 'removed_by_category', None)
                 
                 if comment.body == "[removed]" or getattr(comment, 'removed', False):
                     c["outcome"] = "removed"
+                    c["removed_by"] = removed_by or "unknown"
                     c["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                elif getattr(comment, 'removed_by_category', None):
+                elif removed_by:
                     c["outcome"] = "removed"
+                    c["removed_by"] = removed_by
                     c["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 else:
                     # Comment still exists and wasn't removed
@@ -393,6 +423,7 @@ def get_accuracy_stats(hours: int = None, reddit: 'praw.Reddit' = None, save_upd
                     
             except prawcore.exceptions.NotFound:
                 c["outcome"] = "removed"  # Comment deleted/removed
+                c["removed_by"] = "deleted_or_notfound"
                 c["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 updates_made = True
             except Exception:
@@ -2922,23 +2953,44 @@ def notify_discord_daily_stats(webhook: str, stats: Dict) -> None:
     alltime_resolved = alltime_removed + alltime_approved
     alltime_confirm_rate = (alltime_removed / alltime_resolved * 100) if alltime_resolved > 0 else 0
     
+    # Get recent false positives for display
+    recent_fps = stats.get("recent_false_positives", [])
+    
     # Build description with clear scope separation
-    description = f"""**🤖 Bot Pipeline** (cumulative)
+    description = f"""**🤖 Pipeline** (cumulative)
 • Scanned: {total_processed:,}
 • Benign-skipped: {benign_skipped:,}
 • Sent to LLM: {sent_to_llm:,} ({llm_pct:.1f}%)
 
-**📋 Last 24 Hours**
-• Escalated: {daily_escalated:,} → Removed: {daily_removed:,} | Approved: {daily_approved:,} | Pending: {daily_pending:,}
+**📋 Last 24 Hours** (reported)
+• Escalated: {daily_escalated:,}
+• Resolved: {daily_resolved:,} → Removed: {daily_removed:,} | Approved: {daily_approved:,}
+• Pending: {daily_pending:,}
 
-**📅 Last 7 Days**
-• Escalated: {weekly_escalated:,} → Removed: {weekly_removed:,} | Approved: {weekly_approved:,} | Pending: {weekly_pending:,}
+**📅 Last 7 Days** (reported)
+• Escalated: {weekly_escalated:,}
+• Resolved: {weekly_resolved:,} → Removed: {weekly_removed:,} | Approved: {weekly_approved:,}
+• Pending: {weekly_pending:,}
 
 **📊 All-Time**
-• Escalated: {alltime_total:,} → Removed: {alltime_removed:,} | Approved: {alltime_approved:,} | Pending: {alltime_pending:,}
+• Escalated: {alltime_total:,}
+• Resolved: {alltime_resolved:,} → Removed: {alltime_removed:,} | Approved: {alltime_approved:,}
+• Pending: {alltime_pending:,}
 """
     
-    # Precision fields
+    # Add recent false positives if any
+    if recent_fps:
+        description += "\n**⚠️ Recent Approved** (potential FPs):\n"
+        for fp in recent_fps[:3]:  # Show up to 3
+            text_preview = fp.get("text", "")[:50].replace("\n", " ")
+            reason = fp.get("groq_reason", "")[:40]
+            link = fp.get("permalink", "")
+            if link:
+                # Shorten reddit link
+                short_link = link.replace("https://reddit.com", "")
+                description += f'• "{text_preview}..." - {reason}\n  {short_link}\n'
+    
+    # Precision fields - show formula
     if daily_resolved > 0:
         daily_precision = f"{daily_confirm_rate:.1f}%\n({daily_removed}/{daily_resolved})"
     else:
@@ -2956,23 +3008,23 @@ def notify_discord_daily_stats(webhook: str, stats: Dict) -> None:
     
     fields = [
         {
-            "name": "🎯 24h Rate", 
+            "name": "🎯 24h Confirm", 
             "value": daily_precision, 
             "inline": True
         },
         {
-            "name": "📅 7d Rate", 
+            "name": "📅 7d Confirm", 
             "value": weekly_precision, 
             "inline": True
         },
         {
-            "name": "📈 All-Time Rate", 
+            "name": "📈 All-Time Confirm", 
             "value": alltime_precision, 
             "inline": True
         },
     ]
     
-    footer_note = "Confirm Rate = % of bot escalations that mods removed (precision)."
+    footer_note = "Confirm Rate = Removed / (Removed + Approved). Pending = still in modqueue."
     
     # Color based on weekly confirm rate (or all-time if no weekly data)
     rate_to_use = weekly_confirm_rate if weekly_resolved > 0 else alltime_confirm_rate
@@ -3007,6 +3059,31 @@ def load_false_positives() -> List[Dict]:
     except json.JSONDecodeError:
         logging.warning(f"Could not parse {FALSE_POSITIVES_FILE}, starting fresh")
         return []
+
+
+def get_recent_false_positives(hours: int = 24, limit: int = 5) -> List[Dict]:
+    """Get recent false positives for display in Discord stats"""
+    entries = load_false_positives()
+    if not entries:
+        return []
+    
+    now = time.time()
+    cutoff = now - (hours * 3600)
+    
+    recent = []
+    for entry in entries:
+        discovered_at = entry.get("discovered_at", "")
+        if discovered_at:
+            try:
+                discovered_time = time.mktime(time.strptime(discovered_at, "%Y-%m-%dT%H:%M:%SZ"))
+                if discovered_time >= cutoff:
+                    recent.append(entry)
+            except ValueError:
+                pass
+    
+    # Sort by discovered_at descending (most recent first)
+    recent.sort(key=lambda x: x.get("discovered_at", ""), reverse=True)
+    return recent[:limit]
 
 
 def save_false_positives(entries: List[Dict]) -> None:
@@ -3673,7 +3750,8 @@ def main() -> None:
                 "benign": detox_filter.benign_skipped + detox_filter.pattern_skipped,
                 "accuracy_daily": accuracy_daily,
                 "accuracy_weekly": accuracy_weekly,
-                "accuracy_alltime": accuracy_alltime
+                "accuracy_alltime": accuracy_alltime,
+                "recent_false_positives": get_recent_false_positives(hours=48, limit=3)
             }
             notify_discord_daily_stats(cfg.discord_webhook, startup_stats)
             logging.info("Posted current stats to Discord on startup")
@@ -3720,7 +3798,8 @@ def main() -> None:
                     "benign": detox_filter.benign_skipped + detox_filter.pattern_skipped,
                     "accuracy_daily": accuracy_daily,
                     "accuracy_weekly": accuracy_weekly,
-                    "accuracy_alltime": accuracy_alltime
+                    "accuracy_alltime": accuracy_alltime,
+                    "recent_false_positives": get_recent_false_positives(hours=24, limit=3)
                 }
                 
                 notify_discord_daily_stats(discord_webhook, stats)
