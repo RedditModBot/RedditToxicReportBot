@@ -1373,11 +1373,14 @@ def matches_any_benign_pattern(text: str) -> bool:
 def is_benign_exclamation(text: str) -> bool:
     """
     Check if comment contains a benign phrase that indicates it's not toxic.
-    Only matches PHRASES (not single words) and only when NOT strongly directed at someone.
     
-    For substring matches (vs regex), requires:
-    - Short comment (<=12 words) to avoid "no shit, you're an idiot"
-    - No direct insults present
+    Two-tier approach:
+    1. For ANY length comment: Check if benign pattern matches AND not strongly directed
+       - This catches "it's a fucking plane", "Fuckin Dementors", etc.
+    2. For short comments (<=12 words): Also allow general benign phrases if no insults
+    
+    Key insight: If a specific benign pattern like "it's a fucking" matches,
+    that's strong evidence the profanity is emphasis, not an attack.
     """
     # If strongly directed at someone, don't skip
     if is_strongly_directed(text):
@@ -1391,12 +1394,16 @@ def is_benign_exclamation(text: str) -> bool:
         if pattern.match(text_lower):
             return True
     
-    # For substring matching, add safety constraints:
-    # 1. Short comment only (<=12 words)
-    # 2. No direct insults present
+    # NEW: Check specific benign patterns that indicate non-toxic intent
+    # These are safe for any length because they're specific phrases
+    # like "it's a fucking", "these people can", "fuckin dementors"
+    if matches_any_benign_pattern(text):
+        return True
+    
+    # For short comments without specific patterns, use more restrictive check
     word_count = len(text_lower.split())
     if word_count > 12:
-        return False  # Too long for benign phrase skip
+        return False  # Too long for general benign phrase skip
     
     # Check for insults - if present, don't skip even with benign phrase
     if contains_direct_insult(text):
