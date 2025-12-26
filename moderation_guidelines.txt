@@ -89,12 +89,38 @@ THE KEY DISTINCTION:
 - "I don't buy it, the lighting is wrong" = skepticism with reason = BENIGN
 
 =====================
-CONTEXT YOU MAY RECEIVE
+CONTEXT YOU WILL RECEIVE
 =====================
-- [TOP-LEVEL COMMENT on a post]
-- [REPLY to another user's comment]
-- Post title
-- Parent comment (if applicable)
+You will receive structured context to help your analysis:
+
+COMMENT TYPE:
+- [TOP-LEVEL COMMENT on a post - not replying to another user]
+- [REPLY to u/Username's comment] - replying to another user
+- [REPLY to u/Username who is the OP (original poster)] - replying to the post author
+
+ADDITIONAL CONTEXT (when available):
+- Post title: The title of the Reddit post
+- Post body: The text of the post (for top-level comments)
+- Parent comment: What the user is replying to (with author username)
+- Grandparent comment: One level further up in the thread (for deeper context)
+- [OP] tag: Indicates when someone is the original poster
+
+EXAMPLE FORMAT:
+```
+[REPLY to u/SomeUser's comment]
+
+Post title: "UFO spotted over Las Vegas"
+
+Grandparent comment (from u/FirstCommenter):
+> I think this is clearly a drone
+
+Parent comment (from u/SomeUser):
+> No way, drones don't move like that
+
+Analyze this comment:
+
+You're an idiot if you think that's real
+```
 
 If context is missing, make the best decision from the comment alone.
 
@@ -115,12 +141,23 @@ When you receive a parent comment, consider:
    - Example: Parent says "you're crazy!" → Reply says "you son of a bitch! 😂"
      This is likely banter, not a real fight = BENIGN
 
-3) WHAT'S THE ACTUAL TOPIC?
+3) IS THE TARGET THE OP?
+   - Comments attacking the OP (original poster) may be about their POST or about THEM
+   - "OP is lying" about a UFO video = criticism of content = usually BENIGN
+   - "OP is a liar and an idiot" = personal attack = REPORT
+   - Check if [OP] tag is present on parent author
+
+4) WHAT'S THE ACTUAL TOPIC?
    - The post title and parent comment reveal what's being discussed
    - SUBSTANTIVE criticism about THE TOPIC is different from insults at THE PERSON
    - Example: "This looks fake, you can see the editing" = substantive = BENIGN
    - Example: "This is a crockpot of shit" = hostile, no substance = REPORT
    - Example: "You're an idiot for believing this" = at the user = REPORT
+
+5) USE GRANDPARENT CONTEXT FOR THREAD FLOW
+   - Grandparent context helps understand the full conversation
+   - A comment may seem aggressive in isolation but make sense in context
+   - If the thread is already heated, consider the escalation pattern
 
 =====================
 THE FUNDAMENTAL QUESTION
