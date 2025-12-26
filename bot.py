@@ -106,7 +106,8 @@ def track_benign_analyzed(comment_id: str, permalink: str, text: str,
                           detoxify_scores: Dict[str, float],
                           is_top_level: bool = False,
                           prefilter_trigger: str = "",
-                          all_ml_scores: Dict[str, float] = None) -> None:
+                          all_ml_scores: Dict[str, float] = None,
+                          context_info: Dict[str, str] = None) -> None:
     """
     Track comments that were sent to LLM but came back BENIGN.
     Auto-cleans entries older than BENIGN_TRACKING_MAX_AGE_HOURS.
@@ -133,6 +134,9 @@ def track_benign_analyzed(comment_id: str, permalink: str, text: str,
             elif k.startswith('perspective_') and isinstance(v, (int, float)):
                 perspective_scores[k.replace('perspective_', '')] = v
     
+    # Extract context info
+    context_info = context_info or {}
+    
     comments.append({
         "comment_id": comment_id,
         "permalink": permalink,
@@ -144,6 +148,11 @@ def track_benign_analyzed(comment_id: str, permalink: str, text: str,
         "perspective_scores": perspective_scores,
         "is_top_level": is_top_level,
         "prefilter_trigger": prefilter_trigger,
+        "post_title": context_info.get("post_title", ""),
+        "parent_context": context_info.get("parent_context", "")[:500],
+        "parent_author": context_info.get("parent_author", ""),
+        "is_parent_op": context_info.get("is_parent_op", False),
+        "grandparent_context": context_info.get("grandparent_context", "")[:300],
         "analyzed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "timestamp": now
     })
@@ -154,7 +163,8 @@ def track_benign_analyzed(comment_id: str, permalink: str, text: str,
 def track_reported_comment(comment_id: str, permalink: str, text: str, 
                            groq_reason: str, detoxify_score: float,
                            is_top_level: bool = False,
-                           all_ml_scores: Dict[str, float] = None) -> None:
+                           all_ml_scores: Dict[str, float] = None,
+                           context_info: Dict[str, str] = None) -> None:
     """Add a newly reported comment to tracking"""
     comments = load_tracked_comments()
     
@@ -176,6 +186,9 @@ def track_reported_comment(comment_id: str, permalink: str, text: str,
                 # Detoxify scores don't have a prefix
                 detoxify_scores[k] = v
     
+    # Extract context info
+    context_info = context_info or {}
+    
     comments.append({
         "comment_id": comment_id,
         "permalink": permalink,
@@ -186,6 +199,11 @@ def track_reported_comment(comment_id: str, permalink: str, text: str,
         "openai_scores": openai_scores,
         "perspective_scores": perspective_scores,
         "is_top_level": is_top_level,
+        "post_title": context_info.get("post_title", ""),
+        "parent_context": context_info.get("parent_context", "")[:500],
+        "parent_author": context_info.get("parent_author", ""),
+        "is_parent_op": context_info.get("is_parent_op", False),
+        "grandparent_context": context_info.get("grandparent_context", "")[:300],
         "reported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "outcome": "pending",
         "checked_at": ""
@@ -2280,10 +2298,19 @@ class LLMAnalyzer:
             return '\n'.join(lines)
         return ""
     
-    def analyze(self, text: str, subreddit: str, parent_context: str = "", 
+    def analyze(self, text: str, subreddit: str, context_info: Dict[str, str] = None, 
                 detoxify_score: float = 0.0, is_top_level: bool = False, 
-                post_title: str = "", scores: Dict[str, float] = None) -> AnalysisResult:
+                scores: Dict[str, float] = None) -> AnalysisResult:
         """Send to Groq for nuanced analysis"""
+        
+        # Extract context info
+        context_info = context_info or {}
+        post_title = context_info.get("post_title", "")
+        parent_context = context_info.get("parent_context", "")
+        parent_author = context_info.get("parent_author", "")
+        is_parent_op = context_info.get("is_parent_op", False)
+        grandparent_context = context_info.get("grandparent_context", "")
+        grandparent_author = context_info.get("grandparent_author", "")
         
         current_model = self._get_current_model()
         
@@ -2293,7 +2320,13 @@ class LLMAnalyzer:
         if is_top_level:
             context_note = "[TOP-LEVEL COMMENT on a post - not replying to another user]"
         else:
-            context_note = "[REPLY to another user's comment]"
+            if parent_author:
+                if is_parent_op:
+                    context_note = f"[REPLY to u/{parent_author} who is the OP (original poster)]"
+                else:
+                    context_note = f"[REPLY to u/{parent_author}'s comment]"
+            else:
+                context_note = "[REPLY to another user's comment]"
         
         # Check if comment contains Reddit-style quotes
         has_quotes = '\n>' in text or text.startswith('>')
@@ -2305,14 +2338,24 @@ class LLMAnalyzer:
         if ml_context:
             context_note += f"\n\n{ml_context}"
         
-        # Build user prompt with post title and context
+        # Build user prompt with full context
         user_prompt = f"{context_note}\n"
         
         if post_title:
-            user_prompt += f"Post title: \"{post_title}\"\n"
+            user_prompt += f"\nPost title: \"{post_title}\"\n"
+        
+        # Add grandparent context first (if available) for full conversation flow
+        if grandparent_context:
+            gp_author_str = f"u/{grandparent_author}" if grandparent_author else "another user"
+            user_prompt += f"\nGrandparent comment (from {gp_author_str}):\n> {grandparent_context[:500]}\n"
         
         if parent_context:
-            user_prompt += f"Parent context: {parent_context[:1000]}\n"
+            if is_top_level:
+                user_prompt += f"\nPost body:\n> {parent_context[:1000]}\n"
+            else:
+                pa_author_str = f"u/{parent_author}" if parent_author else "another user"
+                op_note = " [OP]" if is_parent_op else ""
+                user_prompt += f"\nParent comment (from {pa_author_str}{op_note}):\n> {parent_context[:1000]}\n"
         
         user_prompt += f"\nAnalyze this comment:\n\n{text}"
 
@@ -2975,13 +3018,17 @@ def track_false_positive(comment_id: str, permalink: str, text: str,
                          reported_at: str, is_top_level: bool = False,
                          detoxify_scores: Dict[str, float] = None,
                          openai_scores: Dict[str, float] = None,
-                         perspective_scores: Dict[str, float] = None) -> None:
+                         perspective_scores: Dict[str, float] = None,
+                         context_info: Dict[str, str] = None) -> None:
     """Track a false positive (reported comment that was approved)"""
     entries = load_false_positives()
     
     # Don't add duplicates
     if any(e.get("comment_id") == comment_id for e in entries):
         return
+    
+    # Extract context info
+    context_info = context_info or {}
     
     entries.append({
         "comment_id": comment_id,
@@ -2993,6 +3040,11 @@ def track_false_positive(comment_id: str, permalink: str, text: str,
         "openai_scores": openai_scores or {},
         "perspective_scores": perspective_scores or {},
         "is_top_level": is_top_level,
+        "post_title": context_info.get("post_title", ""),
+        "parent_context": context_info.get("parent_context", "")[:500],
+        "parent_author": context_info.get("parent_author", ""),
+        "is_parent_op": context_info.get("is_parent_op", False),
+        "grandparent_context": context_info.get("grandparent_context", "")[:300],
         "reported_at": reported_at,
         "discovered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     })
@@ -3058,7 +3110,14 @@ def check_and_track_false_positives(reddit: praw.Reddit, webhook: str = None) ->
                     is_top_level=entry.get("is_top_level", False),
                     detoxify_scores=entry.get("detoxify_scores", {}),
                     openai_scores=entry.get("openai_scores", {}),
-                    perspective_scores=entry.get("perspective_scores", {})
+                    perspective_scores=entry.get("perspective_scores", {}),
+                    context_info={
+                        "post_title": entry.get("post_title", ""),
+                        "parent_context": entry.get("parent_context", ""),
+                        "parent_author": entry.get("parent_author", ""),
+                        "is_parent_op": entry.get("is_parent_op", False),
+                        "grandparent_context": entry.get("grandparent_context", ""),
+                    }
                 )
                 new_false_positives.append(entry)
             
@@ -3098,35 +3157,73 @@ def check_and_track_false_positives(reddit: praw.Reddit, webhook: str = None) ->
 # Helper functions
 # -------------------------------
 
-def get_parent_context(thing) -> Tuple[str, str]:
+def get_parent_context(thing) -> Dict[str, str]:
     """
     Get parent context and post title for better analysis.
-    Returns (parent_context, post_title)
+    Returns dict with: parent_context, post_title, parent_author, is_parent_op, grandparent_context
     """
-    parent_context = ""
-    post_title = ""
+    result = {
+        "parent_context": "",
+        "post_title": "",
+        "parent_author": "",
+        "is_parent_op": False,
+        "grandparent_context": "",
+        "grandparent_author": "",
+    }
     
     try:
+        op_author = ""
+        
         # Get the submission (post) this comment is on
         if hasattr(thing, 'submission'):
             submission = thing.submission
-            post_title = getattr(submission, 'title', '') or ''
+            result["post_title"] = getattr(submission, 'title', '') or ''
+            # Get OP's username for comparison
+            if hasattr(submission, 'author') and submission.author:
+                op_author = submission.author.name
         
-        # Get immediate parent context (keep more for better analysis)
+        # Get immediate parent context
         if hasattr(thing, 'parent'):
             parent = thing.parent()
+            
             if hasattr(parent, 'body'):
-                # Parent is a comment - keep up to 1000 chars for context
-                parent_context = parent.body[:1000]
+                # Parent is a comment
+                result["parent_context"] = parent.body[:1000]
+                
+                # Get parent author
+                if hasattr(parent, 'author') and parent.author:
+                    result["parent_author"] = parent.author.name
+                    result["is_parent_op"] = (parent.author.name == op_author)
+                
+                # Get grandparent context (one level up)
+                if hasattr(parent, 'parent'):
+                    try:
+                        grandparent = parent.parent()
+                        if hasattr(grandparent, 'body'):
+                            result["grandparent_context"] = grandparent.body[:500]
+                            if hasattr(grandparent, 'author') and grandparent.author:
+                                result["grandparent_author"] = grandparent.author.name
+                        elif hasattr(grandparent, 'selftext'):
+                            # Grandparent is the submission
+                            selftext = getattr(grandparent, 'selftext', '') or ""
+                            if selftext:
+                                result["grandparent_context"] = f"[POST] {selftext[:500]}"
+                    except Exception:
+                        pass
+                        
             elif hasattr(parent, 'title'):
-                # Parent is the submission itself
+                # Parent is the submission itself (top-level comment)
                 selftext = getattr(parent, 'selftext', '') or ""
                 if selftext:
-                    parent_context = selftext[:1000]
+                    result["parent_context"] = selftext[:1000]
+                if hasattr(parent, 'author') and parent.author:
+                    result["parent_author"] = parent.author.name
+                    result["is_parent_op"] = True  # Parent is OP's post
+                    
     except Exception:
         pass
     
-    return parent_context, post_title
+    return result
 
 
 def get_text_from_thing(thing) -> Optional[str]:
@@ -3275,9 +3372,9 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
     permalink = f"https://reddit.com{getattr(thing, 'permalink', '')}"
     
     # Get parent context and post title
-    parent_ctx, post_title = "", ""
+    context_info = {}
     if hasattr(thing, 'body'):  # It's a comment
-        parent_ctx, post_title = get_parent_context(thing)
+        context_info = get_parent_context(thing)
     
     # Check if this is a top-level comment (parent is the submission, not another comment)
     is_top_level = False
@@ -3328,7 +3425,7 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
             trigger_reasons=trigger_reasons
         )
     
-    result = analyzer.analyze(text, subreddit_name, parent_ctx, detox_score, is_top_level, post_title, detox_scores)
+    result = analyzer.analyze(text, subreddit_name, context_info, detox_score, is_top_level, detox_scores)
     
     # Show Groq's verdict and reasoning
     logging.info(f"")
@@ -3376,7 +3473,8 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
             detoxify_scores=detox_scores,
             is_top_level=is_top_level,
             prefilter_trigger=prefilter_trigger,
-            all_ml_scores=detox_scores  # detox_scores contains all ML scores
+            all_ml_scores=detox_scores,  # detox_scores contains all ML scores
+            context_info=context_info
         )
     
     logging.info(f"={'='*60}")
@@ -3411,7 +3509,8 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
                     groq_reason=result.reason,
                     detoxify_score=detox_score,
                     is_top_level=is_top_level,
-                    all_ml_scores=detox_scores  # detox_scores contains all ML scores
+                    all_ml_scores=detox_scores,  # detox_scores contains all ML scores
+                    context_info=context_info
                 )
                 
                 # Send Discord notification for report
