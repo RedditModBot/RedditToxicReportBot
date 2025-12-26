@@ -884,8 +884,14 @@ def build_contextual_terms_sets() -> Tuple[set, set]:
                     context_words.add(w_lower)
     return context_words, context_phrases
 
+def build_slur_exceptions_set() -> set:
+    """Build set of phrases that contain slurs but are benign (e.g., 'go poof')"""
+    exceptions = PATTERNS.get("benign_skip", {}).get("slur_exceptions", [])
+    return set(p.lower() for p in exceptions)
+
 # Build sets at module level
 SLUR_WORDS, SLUR_PHRASES = build_slur_sets()
+SLUR_EXCEPTIONS = build_slur_exceptions_set()
 SELF_HARM_PHRASES = build_self_harm_set()
 THREAT_PHRASES = build_threat_set()
 SEXUAL_VIOLENCE_PHRASES = build_sexual_violence_set()
@@ -1085,8 +1091,16 @@ def contains_slur(text: str) -> bool:
     """
     Check if text contains any slur words OR slur phrases.
     Handles both single-word slurs (token match) and multi-word slurs (substring match).
+    Checks for benign exception phrases first (e.g., "go poof" is not a slur).
     """
     normalized = normalize_text(text)
+    
+    # First check if any slur exception phrases are present
+    # If so, the slur is being used in a benign context
+    for exception in SLUR_EXCEPTIONS:
+        if exception in normalized:
+            # This slur usage is benign (e.g., "go poof" meaning vanish)
+            return False
     
     # Check single-word slurs via tokenization
     words = set(re.findall(r'\b\w+\b', normalized))
@@ -1324,6 +1338,35 @@ def contains_contextual_term(text: str) -> bool:
         pattern = r'\b' + re.escape(phrase) + r'\b'
         if re.search(pattern, normalized):
             return True
+    
+    return False
+
+def matches_any_benign_pattern(text: str) -> bool:
+    """
+    Check if text matches ANY benign_skip pattern from the patterns file.
+    This includes:
+    - self_inclusive_criticism ("we humans are stupid")
+    - profanity_as_emphasis ("it's a fucking plane")
+    - third_party_profanity ("these people can fuck off")
+    - frustration_exclamations ("fuck this")
+    - playful_expressions ("you son of a bitch!")
+    - etc.
+    
+    Used to prevent must_escalate on comments that contain insult words
+    but are clearly not personal attacks.
+    """
+    text_lower = text.lower()
+    
+    # Check all benign_skip categories
+    benign_skip = PATTERNS.get("benign_skip", {})
+    for category, phrases in benign_skip.items():
+        if category.startswith("_"):
+            continue
+        if not isinstance(phrases, list):
+            continue
+        for phrase in phrases:
+            if phrase.lower() in text_lower:
+                return True
     
     return False
 
@@ -1846,10 +1889,14 @@ class SmartPreFilter:
                         must_escalate_reason = "must_escalate:dismissive_soft+directed"
         
         # Check direct insults + strongly directed (or reply context)
+        # BUT skip if the comment contains benign patterns that indicate it's not a personal attack
         if not must_escalate_reason and contains_direct_insult(text):
-            if is_strongly_directed(text) or not is_top_level:
-                context = "directed" if is_strongly_directed(text) else "reply"
-                must_escalate_reason = f"must_escalate:insult+{context}"
+            # Check if this matches any benign_skip pattern (self-inclusive, profanity as emphasis, etc.)
+            # This prevents escalating on "it's a fucking plane" or "we humans are stupid"
+            if not matches_any_benign_pattern(text):
+                if is_strongly_directed(text) or not is_top_level:
+                    context = "directed" if is_strongly_directed(text) else "reply"
+                    must_escalate_reason = f"must_escalate:insult+{context}"
         
         # If must_escalate triggered, still get ML scores for context, then return
         if must_escalate_reason:
