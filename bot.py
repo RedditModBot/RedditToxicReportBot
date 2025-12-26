@@ -1896,16 +1896,19 @@ class SmartPreFilter:
             must_escalate_reason = "must_escalate:shill_accusation"
         
         # Check dismissive/hostile - now split into hard and soft
+        # BUT skip if benign pattern matches (e.g., "this bullshit argument" is criticizing idea, not person)
         if not must_escalate_reason:
             has_dismissive, dismissive_type = contains_dismissive_hostile(text)
             if has_dismissive:
-                if dismissive_type == "hard":
-                    if is_strongly_directed(text) or not is_top_level:
-                        context = "directed" if is_strongly_directed(text) else "reply"
-                        must_escalate_reason = f"must_escalate:dismissive_hard+{context}"
-                else:
-                    if is_strongly_directed(text):
-                        must_escalate_reason = "must_escalate:dismissive_soft+directed"
+                # Check for benign patterns before escalating
+                if not matches_any_benign_pattern(text):
+                    if dismissive_type == "hard":
+                        if is_strongly_directed(text) or not is_top_level:
+                            context = "directed" if is_strongly_directed(text) else "reply"
+                            must_escalate_reason = f"must_escalate:dismissive_hard+{context}"
+                    else:
+                        if is_strongly_directed(text):
+                            must_escalate_reason = "must_escalate:dismissive_soft+directed"
         
         # Check direct insults + strongly directed (or reply context)
         # BUT skip if the comment contains benign patterns that indicate it's not a personal attack
@@ -2057,23 +2060,21 @@ class SmartPreFilter:
             1 if perspective_triggered else 0
         ])
         
-        # If benign pattern matched, we're more conservative about sending
-        # Detoxify alone is not enough (it triggers on any profanity)
-        # Require: OpenAI OR Perspective to also trigger, OR both to have elevated scores
-        if has_benign_pattern and ml_triggers_count > 0:
-            # Check if non-Detoxify APIs also flagged it
-            external_triggered = openai_mod_triggered or perspective_triggered
-            
-            # Get OpenAI and Perspective max scores (more reliable than Detoxify for context)
+        # If ONLY Detoxify triggered (not OpenAI or Perspective), check external scores
+        # Detoxify triggers on any profanity/edgy content, but isn't reliable for actual toxicity
+        # Require external validation: OpenAI OR Perspective must also trigger OR have elevated scores
+        if effective_detoxify_triggered and not openai_mod_triggered and not perspective_triggered:
+            # Get OpenAI and Perspective max scores
             openai_max = max([v for k, v in scores.items() if k.startswith('openai_') and isinstance(v, float)], default=0.0)
             persp_max = max([v for k, v in scores.items() if k.startswith('perspective_') and isinstance(v, float)], default=0.0)
             external_max = max(openai_max, persp_max)
             
-            # With benign pattern: require external API trigger OR high external scores (>0.60)
-            if not external_triggered and external_max < 0.60:
+            # Skip if external APIs don't validate the concern (scores < 0.30)
+            if external_max < 0.30:
                 self.benign_skipped += 1
                 scores_summary = self._format_scores_summary(scores)
-                logging.info(f"PREFILTER | SKIP (benign pattern, external APIs low: OpenAI={openai_max:.2f}, Persp={persp_max:.2f}) | {scores_summary} | '{text_preview}...'")
+                benign_note = " (has benign pattern)" if has_benign_pattern else ""
+                logging.info(f"PREFILTER | SKIP (detox-only, external APIs low: OpenAI={openai_max:.2f}, Persp={persp_max:.2f}){benign_note} | {scores_summary} | '{text_preview}...'")
                 return False, scores.get('toxicity', 0.0), scores
         
         if effective_detoxify_triggered or openai_mod_triggered or perspective_triggered:
