@@ -15,7 +15,7 @@ import logging
 import traceback
 import uuid
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
 # -------- env loading --------
@@ -153,6 +153,7 @@ def track_benign_analyzed(comment_id: str, permalink: str, text: str,
         "parent_author": context_info.get("parent_author", ""),
         "is_parent_op": context_info.get("is_parent_op", False),
         "grandparent_context": context_info.get("grandparent_context", "")[:300],
+        "grandparent_author": context_info.get("grandparent_author", ""),
         "analyzed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "timestamp": now
     })
@@ -204,6 +205,7 @@ def track_reported_comment(comment_id: str, permalink: str, text: str,
         "parent_author": context_info.get("parent_author", ""),
         "is_parent_op": context_info.get("is_parent_op", False),
         "grandparent_context": context_info.get("grandparent_context", "")[:300],
+        "grandparent_author": context_info.get("grandparent_author", ""),
         "reported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "outcome": "pending",
         "checked_at": ""
@@ -3045,6 +3047,7 @@ def track_false_positive(comment_id: str, permalink: str, text: str,
         "parent_author": context_info.get("parent_author", ""),
         "is_parent_op": context_info.get("is_parent_op", False),
         "grandparent_context": context_info.get("grandparent_context", "")[:300],
+        "grandparent_author": context_info.get("grandparent_author", ""),
         "reported_at": reported_at,
         "discovered_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     })
@@ -3117,6 +3120,7 @@ def check_and_track_false_positives(reddit: praw.Reddit, webhook: str = None) ->
                         "parent_author": entry.get("parent_author", ""),
                         "is_parent_op": entry.get("is_parent_op", False),
                         "grandparent_context": entry.get("grandparent_context", ""),
+                        "grandparent_author": entry.get("grandparent_author", ""),
                     }
                 )
                 new_false_positives.append(entry)
@@ -3157,7 +3161,7 @@ def check_and_track_false_positives(reddit: praw.Reddit, webhook: str = None) ->
 # Helper functions
 # -------------------------------
 
-def get_parent_context(thing) -> Dict[str, str]:
+def get_parent_context(thing) -> Dict[str, Any]:
     """
     Get parent context and post title for better analysis.
     Returns dict with: parent_context, post_title, parent_author, is_parent_op, grandparent_context
