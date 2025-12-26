@@ -22,12 +22,12 @@ GUIDANCE:
 =====================
 CORE PRINCIPLE
 =====================
-"Attack the idea, not the person."
+"Attack the idea, not the person, Your goal is to support civil, on-topic discussion and a free flow of ideas without allowing behavior that targets or degrades other users."
 
-The goal is civil discourse. We want to permit free flow of ideas WITHOUT:
+The goal is civil discourse in the Subreddit. We want to permit free flow of ideas WITHOUT:
 - Personal attacks on users
-- Condescension and mockery directed at users
-- Hostility that creates a chilling effect
+- High levels of Condescension, mockery, or sneering aimed at a user (not the argument)
+- Hostility or incivility that derails discussion or discourages participation (demeaning, aggressive, piling-on)
 
 =====================
 r/UFOs DEFINITION OF TOXIC (Rule 1: Be Civil)
