@@ -2476,7 +2476,7 @@ def post_discord(webhook: str, content: str) -> None:
 
 def post_discord_embed(webhook: str, title: str, description: str, 
                        color: int = 0xFF0000, fields: List[Dict] = None,
-                       url: str = None) -> bool:
+                       url: str = None, footer: str = None) -> bool:
     """Post a rich embed message to Discord. Returns True on success."""
     if not webhook:
         return False
@@ -2489,6 +2489,9 @@ def post_discord_embed(webhook: str, title: str, description: str,
     
     if url:
         embed["url"] = url
+    
+    if footer:
+        embed["footer"] = {"text": footer[:2048]}  # Discord limit
     
     if fields:
         # Ensure fields have required structure and respect limits
@@ -2692,50 +2695,91 @@ def notify_discord_borderline_skip(webhook: str, comment_text: str, permalink: s
 
 
 def notify_discord_daily_stats(webhook: str, stats: Dict) -> None:
-    """Send daily statistics to Discord"""
+    """
+    Send daily statistics to Discord with clear scope separation.
+    
+    Two scopes:
+    1. Bot Pipeline - What the bot scanned/processed today
+    2. Resolution Outcomes - What mods decided on bot-flagged items
+    """
     if not webhook:
         return
     
+    # --- Scope 1: Bot Pipeline Stats (what bot touched) ---
     total_processed = stats.get("total_processed", 0)
     sent_to_llm = stats.get("sent_to_llm", 0)
-    reported = stats.get("reported", 0)
-    benign = stats.get("benign", 0)
+    benign_skipped = stats.get("benign", 0)
+    pattern_escalated = stats.get("pattern_escalated", 0)
+    escalated_to_mods = stats.get("escalated_to_mods", 0)
     
-    # Accuracy from outcome tracking
+    # Calculate LLM percentage safely
+    llm_pct = (sent_to_llm / total_processed * 100) if total_processed > 0 else 0
+    
+    # --- Scope 2: Resolution Outcomes (mod decisions on bot-flagged items) ---
     accuracy_stats = stats.get("accuracy", {})
     removed = accuracy_stats.get("removed", 0)
-    approved = accuracy_stats.get("approved", 0)
+    approved = accuracy_stats.get("approved", 0)  # These are false positives
     pending = accuracy_stats.get("pending", 0)
+    total_tracked = accuracy_stats.get("total_tracked", 0)
     
     resolved = removed + approved
-    accuracy_pct = (removed / resolved * 100) if resolved > 0 else 0
     
-    description = f"""
-**Processed:** {total_processed:,} comments
-**Sent to LLM:** {sent_to_llm:,} ({(sent_to_llm/total_processed*100):.1f}% of total)
-**Reported:** {reported:,}
-**Benign:** {benign:,}
+    # This is "Mod Confirm Rate" / Precision - % of bot escalations that mods removed
+    # NOT accuracy in the ML sense
+    confirm_rate = (removed / resolved * 100) if resolved > 0 else 0
+    
+    # Build description with clear scope separation
+    description = f"""**🤖 Bot Pipeline** (comments scanned today)
+• Scanned: {total_processed:,}
+• Benign-skipped: {benign_skipped:,}
+• Sent to LLM: {sent_to_llm:,} ({llm_pct:.1f}%)
+• Escalated to mods: {escalated_to_mods:,}
+
+**📋 Mod Outcomes** (bot-flagged items resolved)
+• Removed by mods: {removed:,}
+• Approved (false positives): {approved:,}
+• Pending review: {pending:,}
 """
     
+    # Precision field with clear labeling
+    if resolved > 0:
+        precision_text = f"{confirm_rate:.1f}%\n({removed}/{resolved} confirmed)"
+    else:
+        precision_text = "N/A\n(no items resolved yet)"
+    
     fields = [
-        {"name": "📊 Outcome Tracking", "value": f"Removed: {removed}\nApproved: {approved}\nPending: {pending}", "inline": True},
-        {"name": "🎯 Accuracy", "value": f"{accuracy_pct:.1f}%\n({removed}/{resolved} confirmed)", "inline": True},
+        {
+            "name": "🎯 Mod Confirm Rate", 
+            "value": precision_text, 
+            "inline": True
+        },
+        {
+            "name": "📊 Tracking", 
+            "value": f"Total tracked: {total_tracked}\nResolved: {resolved}\nPending: {pending}", 
+            "inline": True
+        },
     ]
     
-    # Color based on accuracy
-    if accuracy_pct >= 80:
-        color = 0x44FF44  # Green
-    elif accuracy_pct >= 60:
-        color = 0xFFAA00  # Orange
+    # Add note about what the metrics mean
+    footer_note = "Mod Confirm Rate = % of bot escalations that mods removed. Pending includes items flagged on prior days."
+    
+    # Color based on confirm rate (if we have resolved items)
+    if resolved == 0:
+        color = 0x808080  # Gray - no data yet
+    elif confirm_rate >= 80:
+        color = 0x44FF44  # Green - high precision
+    elif confirm_rate >= 60:
+        color = 0xFFAA00  # Orange - moderate
     else:
-        color = 0xFF4444  # Red
+        color = 0xFF4444  # Red - low precision (many false positives)
     
     post_discord_embed(
         webhook=webhook,
         title="📈 Daily Moderation Stats",
         description=description,
         color=color,
-        fields=fields
+        fields=fields,
+        footer=footer_note
     )
 
 
@@ -3332,6 +3376,22 @@ def main() -> None:
                 logging.warning("Discord startup notification failed - check webhook URL")
         except Exception as e:
             logging.error(f"Discord startup notification failed: {e}")
+        
+        # Post current stats on startup (useful when restarting frequently)
+        try:
+            accuracy = get_accuracy_stats()
+            startup_stats = {
+                "total_processed": detox_filter.total,  # Will be 0 on fresh start
+                "sent_to_llm": detox_filter.must_escalate + detox_filter.ml_sent,
+                "benign": detox_filter.benign_skipped + detox_filter.pattern_skipped,
+                "pattern_escalated": detox_filter.must_escalate,
+                "escalated_to_mods": accuracy.get("total_tracked", 0),
+                "accuracy": accuracy
+            }
+            notify_discord_daily_stats(cfg.discord_webhook, startup_stats)
+            logging.info("Posted current stats to Discord on startup")
+        except Exception as e:
+            logging.error(f"Failed to post startup stats: {e}")
     else:
         logging.info("Discord notifications disabled (no webhook configured)")
     
@@ -3371,8 +3431,9 @@ def main() -> None:
                 stats = {
                     "total_processed": detox_filter.total,
                     "sent_to_llm": detox_filter.must_escalate + detox_filter.ml_sent,
-                    "reported": accuracy.get("removed", 0) + accuracy.get("pending", 0),
                     "benign": detox_filter.benign_skipped + detox_filter.pattern_skipped,
+                    "pattern_escalated": detox_filter.must_escalate,
+                    "escalated_to_mods": accuracy.get("total_tracked", 0),  # Items we reported
                     "accuracy": accuracy
                 }
                 
