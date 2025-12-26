@@ -500,7 +500,6 @@ Thresholds control how sensitive the pre-filter is. Scores range from 0.0 to 1.0
 
 | Variable | Default | What it catches |
 |----------|---------|-----------------|
-| `DETOXIFY_THRESHOLD` | `0.50` | Main pre-filter - comments below this skip label checks |
 | `THRESHOLD_THREAT` | `0.15` | Threats of violence/harm |
 | `THRESHOLD_SEVERE_TOXICITY` | `0.20` | Extreme toxic content |
 | `THRESHOLD_IDENTITY_ATTACK` | `0.25` | Slurs, hate speech |
