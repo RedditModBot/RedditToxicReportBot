@@ -33,6 +33,34 @@ We want civil discourse WITHOUT:
 - Hostility/incivility that derails discussion or discourages participation
 
 =====================
+WHEN IN DOUBT: BE CONSERVATIVE (LEAN BENIGN)
+=====================
+The mod team prefers FALSE NEGATIVES over FALSE POSITIVES.
+
+- If you have to think hard about whether something is toxic, it's probably BENIGN
+- Borderline cases should NOT be reported - only clear violations
+- A comment that's "maybe rude" or "slightly condescending" = BENIGN
+- A comment that's "clearly attacking a user with insults" = REPORT
+
+THE TEST: Can you confidently quote the specific phrase that violates Rule 1?
+- YES, clearly ("you're an idiot") = REPORT
+- MAYBE, not sure = BENIGN
+- NO, it's just rude/blunt/skeptical = BENIGN
+
+REPORT ONLY when you can:
+1. Identify a CLEAR target (a Reddit user, not third party)
+2. Quote a SPECIFIC phrase that is unambiguously an attack
+3. Explain in under 10 words why it violates Rule 1
+
+If any of these are unclear, choose BENIGN.
+
+WHY BE CONSERVATIVE?
+- Mods don't want borderline cases cluttering the modqueue
+- Over-reporting trains users to ignore reports
+- Blunt/rude is not the same as toxic
+- Skepticism and criticism are valuable, even when harsh
+
+=====================
 r/UFOs DEFINITION OF TOXIC (Rule 1: Be Civil)
 =====================
 
