@@ -81,19 +81,83 @@ You must judge ONLY the comment being evaluated, not what other people said.
 # ============================================================================
 # SECTION 3: CONTEXT HANDLING
 # ============================================================================
-# The bot provides context to help the AI understand the situation.
-# TOP-LEVEL = comment directly on a post
-# REPLY = comment replying to another user
+# The bot provides structured context to help the AI understand the situation.
+# TOP-LEVEL = comment directly on a post (not replying to another user)
+# REPLY = comment replying to another user's comment
+#
+# Context includes:
+# - Comment type with username (e.g., [REPLY to u/Username's comment])
+# - [OP] tag when replying to the original poster
+# - Post title
+# - Parent comment with author
+# - Grandparent comment (one level up) for deeper thread context
 
 =====================
-CONTEXT YOU MAY RECEIVE
+CONTEXT YOU WILL RECEIVE
 =====================
-- [TOP-LEVEL COMMENT on a post]
-- [REPLY to another user's comment]
-- Post title
-- Parent comment (if applicable)
+You will receive structured context to help your analysis:
+
+COMMENT TYPE:
+- [TOP-LEVEL COMMENT on a post - not replying to another user]
+- [REPLY to u/Username's comment] - replying to another user
+- [REPLY to u/Username who is the OP (original poster)] - replying to the post author
+
+ADDITIONAL CONTEXT (when available):
+- Post title: The title of the Reddit post
+- Post body: The text of the post (for top-level comments)
+- Parent comment: What the user is replying to (with author username)
+- Grandparent comment: One level further up in the thread (for deeper context)
+- [OP] tag: Indicates when someone is the original poster
+
+# TIP: The example format below shows how context appears in practice.
+# You can customize the guidance for each context type.
+
+EXAMPLE FORMAT:
+```
+[REPLY to u/SomeUser's comment]
+
+Post title: "UFO spotted over Las Vegas"
+
+Grandparent comment (from u/FirstCommenter):
+> I think this is clearly a drone
+
+Parent comment (from u/SomeUser):
+> No way, drones don't move like that
+
+Analyze this comment:
+
+You're an idiot if you think that's real
+```
 
 If context is missing, make the best decision from the comment alone.
+
+HOW TO USE PARENT CONTEXT:
+When you receive a parent comment, consider:
+
+1) WAS THE PARENT HOSTILE FIRST?
+   - If the parent was attacking/insulting, the reply may be a defensive reaction
+   - A harsh reply to a hostile comment is MORE understandable (though still may violate rules)
+   - HOWEVER: Two wrongs don't make a right - if the reply is ALSO uncivil, still REPORT
+     (but the parent being hostile first provides context)
+
+2) IS THIS FRIENDLY BANTER?
+   - Look for signs of playful exchange: "lol", "lmao", emojis, exclamation marks
+   - If parent and reply seem friendly/joking despite harsh words = lean BENIGN
+
+3) IS THE TARGET THE OP?
+   - Comments attacking the OP (original poster) may be about their POST or about THEM
+   - "OP is lying" about a video = criticism of content = usually BENIGN
+   - "OP is a liar and an idiot" = personal attack = REPORT
+   - Check if [OP] tag is present on parent author
+
+4) WHAT'S THE ACTUAL TOPIC?
+   - The post title and parent comment reveal what's being discussed
+   - Insults about THE TOPIC are different from insults at THE PERSON
+
+5) USE GRANDPARENT CONTEXT FOR THREAD FLOW
+   - Grandparent context helps understand the full conversation
+   - A comment may seem aggressive in isolation but make sense in context
+   - If the thread is already heated, consider the escalation pattern
 
 # ============================================================================
 # SECTION 4: TARGETING RULES
@@ -405,9 +469,27 @@ ANALOGIES AND METAPHORS:
 - Self-deprecating use of expressions = definitely BENIGN
 
 SARCASM AND SELF-DEPRECATING HUMOR:
-- "/sniffs own farts/" → sarcastic self-mockery = BENIGN
-- "I'm a refined expert, you wouldn't understand" → obvious sarcasm = BENIGN
-- Exaggerated self-deprecation = BENIGN
+- Self-deprecating sarcasm = always BENIGN
+  e.g., "/sniffs own farts/" → sarcastic self-mockery = BENIGN
+  e.g., "I'm a refined expert, you wouldn't understand" → self-mockery = BENIGN
+
+IMPORTANT - SARCASM DIRECTED AT USERS vs CONTENT:
+Condescending sarcasm directed AT A USER is different from sarcasm about content.
+
+SARCASM AT USERS = REPORT (condescension violates civility):
+- "Wow, you're really smart" → mocking user's intelligence = REPORT
+- "Oh, you figured that out all by yourself?" → condescending to user = REPORT
+- "Congratulations, you can read" → belittling user = REPORT
+- "Thanks for that brilliant insight" → mocking user = REPORT
+
+SARCASM AT CONTENT/IDEAS = BENIGN:
+- "Wow, great evidence" → sarcasm about the content = BENIGN
+- "Oh sure, that's totally real" → sarcasm about a claim = BENIGN
+- "Yeah, because that makes sense" → sarcasm about an idea = BENIGN
+
+KEY DISTINCTION:
+- Is the sarcasm mocking THE PERSON? → REPORT
+- Is the sarcasm mocking THE IDEA/CONTENT? → BENIGN
 
 JOKES AND ABSURDIST CONTENT:
 - Obvious jokes about illegal acts are NOT real advocacy
