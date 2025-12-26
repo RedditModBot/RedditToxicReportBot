@@ -277,9 +277,30 @@ def cleanup_old_tracked(max_age_days: int = 30) -> int:
         logging.info(f"Cleaned up {removed} old tracking entries")
     return removed
 
-def get_accuracy_stats() -> Dict[str, any]:
-    """Calculate accuracy statistics from tracked comments"""
+def get_accuracy_stats(hours: int = None) -> Dict[str, any]:
+    """
+    Calculate accuracy statistics from tracked comments.
+    
+    Args:
+        hours: If provided, only count items from the last N hours.
+               If None, count all items (all-time stats).
+    """
     comments = load_tracked_comments()
+    
+    # Filter by time if specified
+    if hours is not None:
+        cutoff = time.time() - (hours * 3600)
+        filtered = []
+        for c in comments:
+            reported_at = c.get("reported_at", "")
+            if reported_at:
+                try:
+                    reported_time = time.mktime(time.strptime(reported_at, "%Y-%m-%dT%H:%M:%SZ"))
+                    if reported_time >= cutoff:
+                        filtered.append(c)
+                except ValueError:
+                    pass  # Skip malformed timestamps
+        comments = filtered
     
     total = len(comments)
     pending = sum(1 for c in comments if c.get("outcome") == "pending")
@@ -2699,83 +2720,93 @@ def notify_discord_daily_stats(webhook: str, stats: Dict) -> None:
     Send daily statistics to Discord with clear scope separation.
     
     Two scopes:
-    1. Bot Pipeline - What the bot scanned/processed today
-    2. Resolution Outcomes - What mods decided on bot-flagged items
+    1. Bot Pipeline - What the bot scanned/processed (in-memory, resets on restart)
+    2. Resolution Outcomes - What mods decided on bot-flagged items (last 24h AND all-time)
     """
     if not webhook:
         return
     
-    # --- Scope 1: Bot Pipeline Stats (what bot touched) ---
+    # --- Scope 1: Bot Pipeline Stats (in-memory, resets on restart) ---
     total_processed = stats.get("total_processed", 0)
     sent_to_llm = stats.get("sent_to_llm", 0)
     benign_skipped = stats.get("benign", 0)
-    pattern_escalated = stats.get("pattern_escalated", 0)
-    escalated_to_mods = stats.get("escalated_to_mods", 0)
     
     # Calculate LLM percentage safely
     llm_pct = (sent_to_llm / total_processed * 100) if total_processed > 0 else 0
     
-    # --- Scope 2: Resolution Outcomes (mod decisions on bot-flagged items) ---
-    accuracy_stats = stats.get("accuracy", {})
-    removed = accuracy_stats.get("removed", 0)
-    approved = accuracy_stats.get("approved", 0)  # These are false positives
-    pending = accuracy_stats.get("pending", 0)
-    total_tracked = accuracy_stats.get("total_tracked", 0)
+    # --- Scope 2: Resolution Outcomes ---
+    # Daily stats (last 24 hours)
+    daily_stats = stats.get("accuracy_daily", {})
+    daily_escalated = daily_stats.get("total_tracked", 0)
+    daily_removed = daily_stats.get("removed", 0)
+    daily_approved = daily_stats.get("approved", 0)
+    daily_pending = daily_stats.get("pending", 0)
+    daily_resolved = daily_removed + daily_approved
+    daily_confirm_rate = (daily_removed / daily_resolved * 100) if daily_resolved > 0 else 0
     
-    resolved = removed + approved
-    
-    # This is "Mod Confirm Rate" / Precision - % of bot escalations that mods removed
-    # NOT accuracy in the ML sense
-    confirm_rate = (removed / resolved * 100) if resolved > 0 else 0
+    # All-time stats
+    alltime_stats = stats.get("accuracy_alltime", {})
+    alltime_total = alltime_stats.get("total_tracked", 0)
+    alltime_removed = alltime_stats.get("removed", 0)
+    alltime_approved = alltime_stats.get("approved", 0)
+    alltime_pending = alltime_stats.get("pending", 0)
+    alltime_resolved = alltime_removed + alltime_approved
+    alltime_confirm_rate = (alltime_removed / alltime_resolved * 100) if alltime_resolved > 0 else 0
     
     # Build description with clear scope separation
-    description = f"""**🤖 Bot Pipeline** (comments scanned today)
+    description = f"""**🤖 Bot Pipeline** (since last restart)
 • Scanned: {total_processed:,}
 • Benign-skipped: {benign_skipped:,}
 • Sent to LLM: {sent_to_llm:,} ({llm_pct:.1f}%)
-• Escalated to mods: {escalated_to_mods:,}
 
-**📋 Mod Outcomes** (bot-flagged items resolved)
-• Removed by mods: {removed:,}
-• Approved (false positives): {approved:,}
-• Pending review: {pending:,}
+**📋 Last 24 Hours**
+• Escalated to mods: {daily_escalated:,}
+• Removed: {daily_removed:,} | Approved: {daily_approved:,} | Pending: {daily_pending:,}
+
+**📊 All-Time**
+• Total tracked: {alltime_total:,}
+• Removed: {alltime_removed:,} | Approved: {alltime_approved:,} | Pending: {alltime_pending:,}
 """
     
-    # Precision field with clear labeling
-    if resolved > 0:
-        precision_text = f"{confirm_rate:.1f}%\n({removed}/{resolved} confirmed)"
+    # Precision fields
+    if daily_resolved > 0:
+        daily_precision = f"{daily_confirm_rate:.1f}%\n({daily_removed}/{daily_resolved})"
     else:
-        precision_text = "N/A\n(no items resolved yet)"
+        daily_precision = "N/A\n(no resolutions)"
+    
+    if alltime_resolved > 0:
+        alltime_precision = f"{alltime_confirm_rate:.1f}%\n({alltime_removed}/{alltime_resolved})"
+    else:
+        alltime_precision = "N/A\n(no resolutions)"
     
     fields = [
         {
-            "name": "🎯 Mod Confirm Rate", 
-            "value": precision_text, 
+            "name": "🎯 24h Confirm Rate", 
+            "value": daily_precision, 
             "inline": True
         },
         {
-            "name": "📊 Tracking", 
-            "value": f"Total tracked: {total_tracked}\nResolved: {resolved}\nPending: {pending}", 
+            "name": "📈 All-Time Confirm Rate", 
+            "value": alltime_precision, 
             "inline": True
         },
     ]
     
-    # Add note about what the metrics mean
-    footer_note = "Mod Confirm Rate = % of bot escalations that mods removed. Pending includes items flagged on prior days."
+    footer_note = "Confirm Rate = % of bot escalations that mods removed (precision). Bot Pipeline resets on restart."
     
-    # Color based on confirm rate (if we have resolved items)
-    if resolved == 0:
+    # Color based on all-time confirm rate
+    if alltime_resolved == 0:
         color = 0x808080  # Gray - no data yet
-    elif confirm_rate >= 80:
+    elif alltime_confirm_rate >= 80:
         color = 0x44FF44  # Green - high precision
-    elif confirm_rate >= 60:
+    elif alltime_confirm_rate >= 60:
         color = 0xFFAA00  # Orange - moderate
     else:
-        color = 0xFF4444  # Red - low precision (many false positives)
+        color = 0xFF4444  # Red - low precision
     
     post_discord_embed(
         webhook=webhook,
-        title="📈 Daily Moderation Stats",
+        title="📈 Moderation Stats",
         description=description,
         color=color,
         fields=fields,
@@ -3379,14 +3410,14 @@ def main() -> None:
         
         # Post current stats on startup (useful when restarting frequently)
         try:
-            accuracy = get_accuracy_stats()
+            accuracy_daily = get_accuracy_stats(hours=24)  # Last 24 hours
+            accuracy_alltime = get_accuracy_stats()  # All time
             startup_stats = {
                 "total_processed": detox_filter.total,  # Will be 0 on fresh start
                 "sent_to_llm": detox_filter.must_escalate + detox_filter.ml_sent,
                 "benign": detox_filter.benign_skipped + detox_filter.pattern_skipped,
-                "pattern_escalated": detox_filter.must_escalate,
-                "escalated_to_mods": accuracy.get("total_tracked", 0),
-                "accuracy": accuracy
+                "accuracy_daily": accuracy_daily,
+                "accuracy_alltime": accuracy_alltime
             }
             notify_discord_daily_stats(cfg.discord_webhook, startup_stats)
             logging.info("Posted current stats to Discord on startup")
@@ -3422,19 +3453,16 @@ def main() -> None:
             time.sleep(seconds_until_midnight + 60)  # Wait until just after midnight
             
             try:
-                # Gather stats
-                accuracy = get_accuracy_stats()
-                
-                # Get filter stats (parse from string - not ideal but works)
-                filter_stats = detox_filter.get_stats()
+                # Gather stats - both daily (24h) and all-time
+                accuracy_daily = get_accuracy_stats(hours=24)
+                accuracy_alltime = get_accuracy_stats()
                 
                 stats = {
                     "total_processed": detox_filter.total,
                     "sent_to_llm": detox_filter.must_escalate + detox_filter.ml_sent,
                     "benign": detox_filter.benign_skipped + detox_filter.pattern_skipped,
-                    "pattern_escalated": detox_filter.must_escalate,
-                    "escalated_to_mods": accuracy.get("total_tracked", 0),  # Items we reported
-                    "accuracy": accuracy
+                    "accuracy_daily": accuracy_daily,
+                    "accuracy_alltime": accuracy_alltime
                 }
                 
                 notify_discord_daily_stats(discord_webhook, stats)
