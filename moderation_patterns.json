@@ -1180,7 +1180,11 @@
       "this is wild",
       "thats insane",
       "thats crazy",
-      "thats wild"
+      "thats wild",
+      "dementors are not real",
+      "dementors never",
+      "harry potter",
+      "jk rowling"
     ],
     "ufo_skepticism_phrases": [
       "obviously fake",
@@ -1441,7 +1445,9 @@
       "highky",
       "sussy",
       "nocap",
-      "aight"
+      "aight",
+      "like assholes",
+      "opinions are like"
     ],
     "third_party_profanity": [
       "fuck that",
@@ -1526,7 +1532,20 @@
       "full of shit",
       "he's full of",
       "she's full of",
-      "they're full of"
+      "they're full of",
+      "idiots who",
+      "idiots that",
+      "the idiots",
+      "these idiots",
+      "fucking idiots who",
+      "morons who",
+      "morons that",
+      "the morons",
+      "the dumb people",
+      "dumb people that",
+      "dumb people who",
+      "grifters",
+      "the grifters"
     ],
     "profanity_as_emphasis": [
       "is fucking",
@@ -1803,7 +1822,10 @@
       "what does that mean",
       "what do you mean",
       "i don't understand",
-      "i dont understand"
+      "i dont understand",
+      "are you just trolling",
+      "just trolling",
+      "are you trolling"
     ],
     "disbelief_at_situation": [
       "this is bullshit",
@@ -1861,7 +1883,37 @@
       "disturbing truth",
       "scary stuff",
       "terrifying stuff",
-      "creepy stuff"
+      "creepy stuff",
+      "this is so stupid",
+      "this is stupid",
+      "that is stupid",
+      "that is so stupid",
+      "that's stupid",
+      "thats stupid",
+      "that's so stupid",
+      "so stupid.",
+      "so stupid!",
+      "how stupid",
+      "how dumb",
+      "is stupid",
+      "is dumb",
+      "stupid duct tape",
+      "stupid thing",
+      "stupid video",
+      "stupid rule",
+      "stupid requirement",
+      "stupid duct",
+      "stupid tape",
+      "what is that stupid",
+      "that stupid",
+      "the clown realm",
+      "clown realm",
+      "bezo the clown",
+      "media clowns",
+      "media circus",
+      "the clowns",
+      "these clowns",
+      "those clowns"
     ],
     "self_deprecating": [
       "i'm just dumb",
@@ -1974,7 +2026,18 @@
       "you're not stupid",
       "youre not stupid",
       "don't be hard on yourself",
-      "dont be hard on yourself"
+      "dont be hard on yourself",
+      "maybe i'm just dumb",
+      "maybe im just dumb",
+      "i'm a jerk",
+      "im a jerk",
+      "it's stupid but",
+      "its stupid but",
+      "i'm proud of",
+      "im proud of",
+      "maybe im just",
+      "maybe i'm just",
+      "am i just"
     ],
     "slur_exceptions": [
       "go poof",
