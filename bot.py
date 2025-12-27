@@ -1536,9 +1536,19 @@ class OpenAIModerationClient:
             scores = {}
             triggered_categories = []
             
+            # Safety-critical categories that should NOT have thresholds raised
+            SAFETY_CRITICAL = {'self-harm', 'self-harm/intent', 'self-harm/instructions', 'sexual/minors'}
+            
             for category, score in result.category_scores.model_dump().items():
                 scores[category] = score
-                threshold = self.DEFAULT_THRESHOLDS.get(category, self.base_threshold)
+                default_thresh = self.DEFAULT_THRESHOLDS.get(category, 0.5)
+                
+                # For safety-critical categories, always use the lower (more sensitive) threshold
+                # For other categories, allow env var to raise threshold (less sensitive)
+                if category in SAFETY_CRITICAL:
+                    threshold = min(default_thresh, self.base_threshold)
+                else:
+                    threshold = max(default_thresh, self.base_threshold)
                 
                 if score >= threshold:
                     triggered_categories.append(f"{category}={score:.2f}")
@@ -1663,7 +1673,11 @@ class PerspectiveAPIClient:
             for attr, data in response.get('attributeScores', {}).items():
                 score = data.get('summaryScore', {}).get('value', 0.0)
                 scores[attr] = score
-                threshold = self.DEFAULT_THRESHOLDS.get(attr, self.base_threshold)
+                # Use base_threshold from env if set higher than default (less sensitive)
+                # or use default if it's already higher (e.g., PROFANITY=0.8)
+                # This allows PERSPECTIVE_THRESHOLD to raise thresholds
+                default_thresh = self.DEFAULT_THRESHOLDS.get(attr, 0.7)
+                threshold = max(default_thresh, self.base_threshold)
                 
                 if score >= threshold:
                     triggered_categories.append(f"{attr}={score:.2f}")
