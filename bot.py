@@ -2697,6 +2697,23 @@ class LLMAnalyzer:
             
             raw = response.choices[0].message.content.strip()
             
+            # Log cache usage for x.ai requests
+            if hasattr(response, 'usage') and response.usage:
+                usage = response.usage
+                prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+                completion_tokens = getattr(usage, 'completion_tokens', 0)
+                
+                # Check for cached tokens (x.ai specific)
+                cached_tokens = 0
+                if hasattr(usage, 'prompt_tokens_details') and usage.prompt_tokens_details:
+                    cached_tokens = getattr(usage.prompt_tokens_details, 'cached_tokens', 0)
+                
+                if cached_tokens > 0:
+                    cache_pct = 100 * cached_tokens / prompt_tokens if prompt_tokens > 0 else 0
+                    logging.info(f"LLM USAGE: {prompt_tokens} prompt ({cached_tokens} cached = {cache_pct:.1f}%), {completion_tokens} completion")
+                else:
+                    logging.debug(f"LLM USAGE: {prompt_tokens} prompt (no cache), {completion_tokens} completion")
+            
             # Debug: log raw response
             logging.debug(f"GROQ RAW RESPONSE: {raw}")
             
