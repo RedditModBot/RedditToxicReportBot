@@ -970,9 +970,15 @@ def is_strongly_directed(text: str) -> bool:
         # If any generic phrase is found, check if "you" appears outside of it
         text_check = text_lower
         for phrase in generic_phrases:
-            # Use regex with word boundaries for accurate removal
-            pattern = r'\b' + re.escape(phrase.lower()) + r'\b'
-            text_check = re.sub(pattern, '', text_check)
+            phrase_lower = phrase.lower()
+            # For phrases ending in punctuation, use substring match
+            # For phrases ending in word characters, use word boundary
+            if phrase_lower[-1].isalnum():
+                pattern = r'\b' + re.escape(phrase_lower) + r'\b'
+                text_check = re.sub(pattern, '', text_check)
+            else:
+                # Substring replacement for phrases ending in punctuation
+                text_check = text_check.replace(phrase_lower, '')
         
         # If "you" still appears after removing generic phrases, it's directed
         if re.search(r'\b(you|your|you\'re|youre|ur)\b', text_check):
@@ -2076,6 +2082,19 @@ class SmartPreFilter:
                 benign_note = " (has benign pattern)" if has_benign_pattern else ""
                 logging.info(f"PREFILTER | SKIP (detox-only, external APIs low: OpenAI={openai_max:.2f}, Persp={persp_max:.2f}){benign_note} | {scores_summary} | '{text_preview}...'")
                 return False, scores.get('toxicity', 0.0), scores
+        
+        # If ONLY OpenAI triggered (not Detoxify and not Perspective), check for benign patterns
+        # OpenAI harassment scores often flag substantive criticism of ideas/public figures
+        # If benign pattern matches AND not strongly directed, skip
+        if openai_mod_triggered and not effective_detoxify_triggered and not perspective_triggered:
+            if has_benign_pattern and not is_strongly_directed(text):
+                # Check Perspective score - if it's also low, skip
+                persp_max = max([v for k, v in scores.items() if k.startswith('perspective_') and isinstance(v, float)], default=0.0)
+                if persp_max < 0.40:  # Perspective doesn't see it as toxic either
+                    self.benign_skipped += 1
+                    scores_summary = self._format_scores_summary(scores)
+                    logging.info(f"PREFILTER | SKIP (openai-only, benign pattern + not directed, Persp={persp_max:.2f}) | {scores_summary} | '{text_preview}...'")
+                    return False, scores.get('toxicity', 0.0), scores
         
         if effective_detoxify_triggered or openai_mod_triggered or perspective_triggered:
             # Count detoxify triggers (for stats, even if not used for escalation)
