@@ -2229,15 +2229,19 @@ class AnalysisResult:
 
 
 class LLMAnalyzer:
-    """Uses Groq (free tier) or x.ai Grok API for toxicity analysis with context understanding"""
+    """Uses Groq (free tier), x.ai Grok, or OpenAI GPT for toxicity analysis with context understanding"""
     
     # x.ai model prefixes - models starting with these use x.ai API
     XAI_MODEL_PREFIXES = ("grok-", "grok/")
     
+    # OpenAI model prefixes - models starting with these use OpenAI API
+    OPENAI_MODEL_PREFIXES = ("gpt-", "o1-", "o3-", "chatgpt-")
+    
     def __init__(self, groq_api_key: str, model: str, guidelines: str, 
                  fallback_chain: List[str] = None, daily_limit: int = 240,
                  requests_per_minute: int = 2, xai_api_key: str = "",
-                 xai_reasoning_effort: str = "low", groq_reasoning_effort: str = "medium"):
+                 xai_reasoning_effort: str = "low", groq_reasoning_effort: str = "medium",
+                 openai_api_key: str = ""):
         # Groq client (always available)
         self.groq_client = Groq(api_key=groq_api_key)
         self.groq_reasoning_effort = groq_reasoning_effort
@@ -2248,6 +2252,12 @@ class LLMAnalyzer:
         if xai_api_key:
             self.xai_client = OpenAI(api_key=xai_api_key, base_url="https://api.x.ai/v1")
             logging.info(f"x.ai Grok API configured (reasoning_effort={xai_reasoning_effort})")
+        
+        # OpenAI client (optional, for GPT models)
+        self.openai_client = None
+        if openai_api_key:
+            self.openai_client = OpenAI(api_key=openai_api_key)
+            logging.info("OpenAI GPT API configured for LLM analysis")
         
         # Generate a fixed conversation ID for x.ai cache persistence
         # This increases likelihood of cache hits across requests
@@ -2279,12 +2289,20 @@ class LLMAnalyzer:
         """Check if a model should use x.ai API"""
         return model.lower().startswith(self.XAI_MODEL_PREFIXES)
     
+    def _is_openai_model(self, model: str) -> bool:
+        """Check if a model should use OpenAI API"""
+        return model.lower().startswith(self.OPENAI_MODEL_PREFIXES)
+    
     def _get_client_for_model(self, model: str):
         """Get the appropriate client for a model"""
         if self._is_xai_model(model):
             if not self.xai_client:
                 raise ValueError(f"Model {model} requires XAI_API_KEY to be set")
             return self.xai_client
+        if self._is_openai_model(model):
+            if not self.openai_client:
+                raise ValueError(f"Model {model} requires OPENAI_API_KEY to be set")
+            return self.openai_client
         return self.groq_client
     
     def _wait_for_rate_limit(self) -> None:
@@ -2565,8 +2583,14 @@ class LLMAnalyzer:
                 
                 # Check if this is an x.ai model and we have the client
                 is_xai = self._is_xai_model(model_to_use)
+                is_openai = self._is_openai_model(model_to_use)
+                
                 if is_xai and not self.xai_client:
                     logging.warning(f"Skipping {model_to_use} - XAI_API_KEY not configured")
+                    continue
+                
+                if is_openai and not self.openai_client:
+                    logging.warning(f"Skipping {model_to_use} - OPENAI_API_KEY not configured for LLM")
                     continue
                 
                 for attempt in range(max_retries):
@@ -2593,6 +2617,20 @@ class LLMAnalyzer:
                             
                             response = self.xai_client.chat.completions.create(**api_kwargs)
                             raw_response = None  # No rate limit headers for x.ai
+                        elif is_openai:
+                            # OpenAI API (GPT models)
+                            api_kwargs = {
+                                "model": model_to_use,
+                                "messages": [
+                                    {"role": "system", "content": system_prompt},
+                                    {"role": "user", "content": user_prompt}
+                                ],
+                                "max_tokens": 200,
+                                "temperature": 0.1,
+                            }
+                            
+                            response = self.openai_client.chat.completions.create(**api_kwargs)
+                            raw_response = None  # Handle rate limits via exceptions
                         else:
                             # Groq API - use with_raw_response to get rate limit headers
                             groq_kwargs = {
@@ -3836,6 +3874,7 @@ def main() -> None:
         groq_reasoning_effort=cfg.groq_reasoning_effort,
         xai_api_key=cfg.xai_api_key,
         xai_reasoning_effort=cfg.xai_reasoning_effort,
+        openai_api_key=cfg.openai_moderation_key,  # Same key used for moderation endpoint
         model=cfg.llm_model,
         guidelines=cfg.moderation_guidelines,
         fallback_chain=cfg.llm_fallback_chain,
@@ -3845,6 +3884,8 @@ def main() -> None:
     logging.info(f"Using LLM model: {cfg.llm_model} (max {cfg.llm_requests_per_minute} requests/min)")
     if cfg.xai_api_key:
         logging.info(f"x.ai Grok API available for grok-* models (reasoning_effort={cfg.xai_reasoning_effort})")
+    if cfg.openai_moderation_key:
+        logging.info(f"OpenAI API available for gpt-* models")
     logging.info(f"Fallback chain: {' -> '.join(cfg.llm_fallback_chain)}")
     
     # Discord setup
