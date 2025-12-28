@@ -2619,15 +2619,23 @@ class LLMAnalyzer:
                             raw_response = None  # No rate limit headers for x.ai
                         elif is_openai:
                             # OpenAI API (GPT models)
+                            # Newer models (gpt-5, o1, o3) use max_completion_tokens instead of max_tokens
+                            model_lower = model_to_use.lower()
+                            use_new_param = any(x in model_lower for x in ['gpt-5', 'gpt-4.5', 'o1-', 'o3-'])
+                            
                             api_kwargs = {
                                 "model": model_to_use,
                                 "messages": [
                                     {"role": "system", "content": system_prompt},
                                     {"role": "user", "content": user_prompt}
                                 ],
-                                "max_tokens": 200,
                                 "temperature": 0.1,
                             }
+                            
+                            if use_new_param:
+                                api_kwargs["max_completion_tokens"] = 200
+                            else:
+                                api_kwargs["max_tokens"] = 200
                             
                             response = self.openai_client.chat.completions.create(**api_kwargs)
                             raw_response = None  # Handle rate limits via exceptions
