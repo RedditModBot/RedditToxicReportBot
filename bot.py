@@ -3536,8 +3536,10 @@ def check_auto_remove_consensus(scores: Dict[str, float], cfg: Config, is_patter
     
     # Check consensus from required models
     required_models = cfg.auto_remove_require_models
-    if not required_models:
-        return False, ""
+    
+    # If no models required, auto-remove on LLM decision alone
+    if not required_models or len(required_models) == 0:
+        return True, "llm_decision"
     
     models_passed = []
     models_failed = []
@@ -3582,22 +3584,6 @@ def check_auto_remove_consensus(scores: Dict[str, float], cfg: Config, is_patter
         return False, f"no_consensus:{'+'.join(models_failed)}"
 
 
-def auto_remove_comment(comment, reason: str, cfg: Config) -> bool:
-    """
-    Remove a comment (sends to mod queue for review).
-    
-    Returns:
-        True if removed successfully, False otherwise
-    """
-    try:
-        comment.mod.remove(spam=False)
-        logging.info(f"AUTO-REMOVED comment (pending mod review): {reason}")
-        return True
-    except Exception as e:
-        logging.error(f"Failed to auto-remove comment: {e}")
-        return False
-
-
 def file_report(thing, reason: str, cfg: Config) -> None:
     try:
         if cfg.report_as == "moderator":
@@ -3611,20 +3597,29 @@ def file_report(thing, reason: str, cfg: Config) -> None:
         thing.report(reason)
 
 
-def build_report_reason(result: AnalysisResult) -> str:
+def build_report_reason(result: AnalysisResult, include_filter_tag: bool = False) -> str:
     # Reddit report reasons have a ~100 char limit
-    # Truncate cleanly without cutting mid-word
-    reason = result.reason
-    if len(reason) <= 100:
-        return reason
+    # The bot username already shows as the reporter, so no need for prefix
+    # Format: "<LLM reason>" or "[TOX] <LLM reason>"
+    if include_filter_tag:
+        prefix = "[TOX] "
+    else:
+        prefix = ""
     
-    # Find the last space before the 97 char mark (leave room for "...")
-    truncated = reason[:97]
+    max_reason_len = 100 - len(prefix)
+    
+    reason = result.reason
+    if len(reason) <= max_reason_len:
+        return prefix + reason
+    
+    # Truncate cleanly without cutting mid-word
+    # Leave room for "..."
+    truncated = reason[:max_reason_len - 3]
     last_space = truncated.rfind(' ')
-    if last_space > 50:  # Only use space if it's not too far back
+    if last_space > 30:  # Only use space if it's not too far back
         truncated = truncated[:last_space]
     
-    return truncated + "..."
+    return prefix + truncated + "..."
 
 
 # -------------------------------
@@ -3751,25 +3746,24 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
 
     # File report (only if not dry run)
     if cfg.enable_reddit_reports and should_report:
-        reason = build_report_reason(result)
-        
-        # Check if we should auto-remove
+        # Check if we should include [FILTER] tag for AutoMod to filter
         is_pattern_match = "_trigger_reasons" in detox_scores and "must_escalate" in detox_scores.get("_trigger_reasons", "")
-        should_auto_remove, auto_remove_reason = check_auto_remove_consensus(detox_scores, cfg, is_pattern_match)
+        should_filter, filter_reason = check_auto_remove_consensus(detox_scores, cfg, is_pattern_match)
+        
+        # Build report reason - include [FILTER] tag if auto-remove enabled
+        reason = build_report_reason(result, include_filter_tag=should_filter)
         
         if cfg.dry_run:
             logging.info(f"ACTION: >>> WOULD REPORT <<< (dry run enabled)")
-            if should_auto_remove:
-                logging.info(f"ACTION: >>> WOULD AUTO-REMOVE <<< ({auto_remove_reason})")
+            if should_filter:
+                logging.info(f"ACTION: >>> WOULD FILTER via AutoMod <<< ({filter_reason})")
         else:
             try:
-                # Always file the report first
+                # Just file the report - AutoMod will filter if [FILTER] tag present
                 file_report(thing, reason, cfg)
                 
-                # Auto-remove if consensus met
-                auto_removed = False
-                if should_auto_remove:
-                    auto_removed = auto_remove_comment(thing, auto_remove_reason, cfg)
+                if should_filter:
+                    logging.info(f"Reported with [FILTER] tag - AutoMod will filter ({filter_reason})")
                 
                 # Track the reported comment for accuracy measurement
                 track_reported_comment(
@@ -3779,19 +3773,19 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
                     groq_reason=result.reason,
                     detoxify_score=detox_score,
                     is_top_level=is_top_level,
-                    all_ml_scores=detox_scores,  # detox_scores contains all ML scores
+                    all_ml_scores=detox_scores,
                     context_info=context_info
                 )
                 
-                # Send Discord notification for report
-                if auto_removed:
+                # Send Discord notification
+                if should_filter:
                     notify_discord_auto_remove(
                         webhook=cfg.discord_webhook,
                         comment_text=text,
                         permalink=permalink,
                         reason=result.reason,
                         scores=detox_scores,
-                        auto_remove_reason=auto_remove_reason
+                        auto_remove_reason=filter_reason
                     )
                 else:
                     notify_discord_report(
