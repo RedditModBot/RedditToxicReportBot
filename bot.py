@@ -52,6 +52,7 @@ TRACKING_FILE = "reported_comments.json"
 BENIGN_TRACKING_FILE = "benign_analyzed.json"
 BENIGN_TRACKING_MAX_AGE_HOURS = 48  # Auto-cleanup entries older than this
 PIPELINE_STATS_FILE = "pipeline_stats.json"
+PENDING_REVIEWS_FILE = "pending_reviews.json"  # Track Discord messages awaiting mod review
 
 def load_tracked_comments() -> List[Dict]:
     """Load tracked comments from JSON file"""
@@ -528,6 +529,11 @@ class Config:
     # Discord
     enable_discord: bool
     discord_webhook: str
+    
+    # Discord Bot (for editable review notifications)
+    discord_bot_token: str          # Bot token for posting/editing messages
+    discord_review_channel_id: str  # Channel ID for review notifications
+    discord_review_check_interval: int  # How often to check for reviewed comments (seconds)
 
     # Runtime
     log_level: str
@@ -631,6 +637,11 @@ def load_config() -> Config:
         
         enable_discord=os.getenv("ENABLE_DISCORD", "false").lower() == "true",
         discord_webhook=os.getenv("DISCORD_WEBHOOK", "").strip(),
+        
+        # Discord Bot settings
+        discord_bot_token=os.getenv("DISCORD_BOT_TOKEN", "").strip(),
+        discord_review_channel_id=os.getenv("DISCORD_REVIEW_CHANNEL_ID", "").strip(),
+        discord_review_check_interval=int(os.getenv("DISCORD_REVIEW_CHECK_INTERVAL", "120")),  # 2 minutes default
         
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
     )
@@ -3238,6 +3249,306 @@ def notify_discord_daily_stats(webhook: str, stats: Dict) -> None:
     )
 
 
+# -------------------------------
+# Discord Bot (Editable Review Messages)
+# -------------------------------
+
+def load_pending_reviews() -> List[Dict]:
+    """Load pending review notifications from JSON file"""
+    try:
+        with open(PENDING_REVIEWS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError:
+        logging.warning(f"Could not parse {PENDING_REVIEWS_FILE}, starting fresh")
+        return []
+
+
+def save_pending_reviews(reviews: List[Dict]) -> None:
+    """Save pending review notifications to JSON file"""
+    with open(PENDING_REVIEWS_FILE, "w", encoding="utf-8") as f:
+        json.dump(reviews, f, indent=2)
+
+
+def add_pending_review(comment_id: str, discord_message_id: str, permalink: str, 
+                       comment_text: str, reason: str, scores: Dict[str, float],
+                       auto_remove_reason: str) -> None:
+    """Add a new pending review to track"""
+    reviews = load_pending_reviews()
+    reviews.append({
+        "comment_id": comment_id,
+        "discord_message_id": discord_message_id,
+        "permalink": permalink,
+        "comment_text": comment_text[:500],  # Truncate for storage
+        "reason": reason,
+        "auto_remove_reason": auto_remove_reason,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "scores": {k: v for k, v in scores.items() if isinstance(v, (int, float))}
+    })
+    save_pending_reviews(reviews)
+
+
+def remove_pending_review(comment_id: str) -> None:
+    """Remove a pending review after it's been resolved"""
+    reviews = load_pending_reviews()
+    reviews = [r for r in reviews if r.get("comment_id") != comment_id]
+    save_pending_reviews(reviews)
+
+
+def discord_bot_post_review(cfg: Config, comment_text: str, permalink: str,
+                            reason: str, scores: Dict[str, float],
+                            auto_remove_reason: str, author: str = "unknown") -> Optional[str]:
+    """
+    Post a review notification using Discord Bot API (not webhook).
+    Returns the message ID so we can edit it later.
+    """
+    if not cfg.discord_bot_token or not cfg.discord_review_channel_id:
+        return None
+    
+    # Truncate comment for Discord
+    truncated = comment_text[:1500] + "..." if len(comment_text) > 1500 else comment_text
+    
+    # Build scores summary
+    score_parts = []
+    
+    # Detoxify max score
+    detox_scores = {k: v for k, v in scores.items() 
+                  if not k.startswith(('openai_', 'perspective_', '_')) and isinstance(v, (int, float))}
+    if detox_scores:
+        max_detox = max(detox_scores.values())
+        score_parts.append(f"Detoxify: {max_detox:.2f}")
+    
+    # OpenAI max score
+    openai_scores = {k.replace('openai_', ''): v for k, v in scores.items() 
+                    if k.startswith('openai_') and isinstance(v, (int, float))}
+    if openai_scores:
+        max_openai = max(openai_scores.values())
+        top_cat = max(openai_scores, key=openai_scores.get)
+        score_parts.append(f"OpenAI: {max_openai:.2f} ({top_cat})")
+    
+    # Perspective max score
+    persp_scores = {k.replace('perspective_', ''): v for k, v in scores.items() 
+                   if k.startswith('perspective_') and isinstance(v, (int, float))}
+    if persp_scores:
+        max_persp = max(persp_scores.values())
+        top_cat = max(persp_scores, key=persp_scores.get)
+        score_parts.append(f"Perspective: {max_persp:.2f} ({top_cat})")
+    
+    scores_display = " | ".join(score_parts) if score_parts else "N/A"
+    
+    # Build embed
+    embed = {
+        "title": "🔴 REMOVED - Needs Review",
+        "description": f"```{truncated}```",
+        "color": 0x9B59B6,  # Purple
+        "fields": [
+            {"name": "👤 Author", "value": f"u/{author}", "inline": True},
+            {"name": "🔗 Link", "value": f"[View Comment]({permalink})", "inline": True},
+            {"name": "📊 Reason", "value": reason[:1024], "inline": False},
+            {"name": "🤖 ML Scores", "value": scores_display, "inline": False},
+            {"name": "⚡ Trigger", "value": f"`{auto_remove_reason}`", "inline": False},
+        ],
+        "footer": {"text": "Bot will update this message when reviewed"},
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    }
+    
+    payload = json.dumps({"embeds": [embed]}).encode("utf-8")
+    
+    url = f"https://discord.com/api/v10/channels/{cfg.discord_review_channel_id}/messages"
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bot {cfg.discord_bot_token}",
+            "User-Agent": "ToxicReportBot/1.0"
+        },
+        method="POST"
+    )
+    
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            response_data = json.loads(resp.read().decode("utf-8"))
+            message_id = response_data.get("id")
+            logging.info(f"Discord review notification posted (message_id: {message_id})")
+            return message_id
+    except Exception as e:
+        logging.error(f"Failed to post Discord review notification: {e}")
+        return None
+
+
+def discord_bot_update_review(cfg: Config, message_id: str, status: str, 
+                              mod_name: str, original_text: str, 
+                              original_reason: str, permalink: str) -> bool:
+    """
+    Update an existing review notification with the resolution status.
+    """
+    if not cfg.discord_bot_token or not cfg.discord_review_channel_id or not message_id:
+        return False
+    
+    # Truncate comment for Discord
+    truncated = original_text[:1500] + "..." if len(original_text) > 1500 else original_text
+    
+    if status == "approved":
+        title = "✅ APPROVED"
+        color = 0x44FF44  # Green
+        status_text = f"Approved by u/{mod_name}"
+    elif status == "removed":
+        title = "🗑️ CONFIRMED REMOVED"
+        color = 0xFF4444  # Red
+        status_text = f"Confirmed by u/{mod_name}"
+    else:
+        title = "❓ RESOLVED"
+        color = 0x808080  # Gray
+        status_text = f"Resolved by u/{mod_name}"
+    
+    embed = {
+        "title": title,
+        "description": f"~~```{truncated}```~~",  # Strikethrough
+        "color": color,
+        "fields": [
+            {"name": "📋 Status", "value": status_text, "inline": True},
+            {"name": "🔗 Link", "value": f"[View Comment]({permalink})", "inline": True},
+            {"name": "📊 Original Reason", "value": original_reason[:500], "inline": False},
+        ],
+        "footer": {"text": f"Reviewed at {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}"},
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    }
+    
+    payload = json.dumps({"embeds": [embed]}).encode("utf-8")
+    
+    url = f"https://discord.com/api/v10/channels/{cfg.discord_review_channel_id}/messages/{message_id}"
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bot {cfg.discord_bot_token}",
+            "User-Agent": "ToxicReportBot/1.0"
+        },
+        method="PATCH"
+    )
+    
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            logging.info(f"Discord review notification updated (message_id: {message_id}, status: {status})")
+            return True
+    except Exception as e:
+        logging.error(f"Failed to update Discord review notification: {e}")
+        return False
+
+
+def check_pending_reviews(reddit: praw.Reddit, cfg: Config) -> None:
+    """
+    Check all pending reviews to see if they've been actioned by a mod.
+    Updates Discord messages accordingly.
+    """
+    reviews = load_pending_reviews()
+    if not reviews:
+        return
+    
+    logging.info(f"Checking {len(reviews)} pending review(s)...")
+    
+    resolved = []
+    
+    for review in reviews:
+        comment_id = review.get("comment_id", "")
+        discord_message_id = review.get("discord_message_id", "")
+        permalink = review.get("permalink", "")
+        comment_text = review.get("comment_text", "")
+        reason = review.get("reason", "")
+        
+        if not comment_id or not discord_message_id:
+            resolved.append(comment_id)
+            continue
+        
+        try:
+            comment = reddit.comment(id=comment_id)
+            comment._fetch()  # Force fetch to get current state
+            
+            # Check if comment was approved (removed=False after bot removed it)
+            # or confirmed removed by mod
+            mod_action = None
+            mod_name = "a moderator"
+            
+            # Check modlog for this comment
+            try:
+                subreddit_name = permalink.split("/r/")[1].split("/")[0] if "/r/" in permalink else None
+                if subreddit_name:
+                    subreddit = reddit.subreddit(subreddit_name)
+                    # Look for recent mod actions on this comment
+                    for log_entry in subreddit.mod.log(limit=100):
+                        if hasattr(log_entry, 'target_fullname') and log_entry.target_fullname == f"t1_{comment_id}":
+                            if log_entry.action == "approvecomment":
+                                mod_action = "approved"
+                                mod_name = log_entry.mod.name if hasattr(log_entry, 'mod') else "a moderator"
+                                break
+                            elif log_entry.action == "removecomment":
+                                # Check if this is a different mod confirming the removal
+                                mod_action = "removed"
+                                mod_name = log_entry.mod.name if hasattr(log_entry, 'mod') else "a moderator"
+                                break
+            except Exception as e:
+                logging.debug(f"Could not check modlog for {comment_id}: {e}")
+            
+            # Fallback: check comment state directly
+            if not mod_action:
+                # If comment is no longer removed, it was approved
+                if hasattr(comment, 'removed') and not comment.removed and hasattr(comment, 'banned_by') and comment.banned_by is None:
+                    mod_action = "approved"
+                # If comment body is [removed], it's still removed
+                elif comment.body == "[removed]":
+                    # Still removed, check if it's old enough to consider "confirmed"
+                    created_at = review.get("created_at", "")
+                    if created_at:
+                        try:
+                            created_time = time.mktime(time.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ"))
+                            # If it's been more than 24 hours and still removed, consider it confirmed
+                            if time.time() - created_time > 86400:
+                                mod_action = "removed"
+                                mod_name = "timeout (24h)"
+                        except:
+                            pass
+            
+            if mod_action:
+                # Update Discord message
+                success = discord_bot_update_review(
+                    cfg=cfg,
+                    message_id=discord_message_id,
+                    status=mod_action,
+                    mod_name=mod_name,
+                    original_text=comment_text,
+                    original_reason=reason,
+                    permalink=permalink
+                )
+                if success:
+                    resolved.append(comment_id)
+                    logging.info(f"Review resolved: {comment_id} -> {mod_action} by {mod_name}")
+                    
+        except prawcore.exceptions.NotFound:
+            # Comment was deleted entirely
+            discord_bot_update_review(
+                cfg=cfg,
+                message_id=discord_message_id,
+                status="removed",
+                mod_name="deletion",
+                original_text=comment_text,
+                original_reason=reason,
+                permalink=permalink
+            )
+            resolved.append(comment_id)
+            logging.info(f"Review resolved: {comment_id} -> deleted")
+        except Exception as e:
+            logging.debug(f"Error checking review {comment_id}: {e}")
+    
+    # Remove resolved reviews
+    if resolved:
+        reviews = [r for r in reviews if r.get("comment_id") not in resolved]
+        save_pending_reviews(reviews)
+        logging.info(f"Removed {len(resolved)} resolved review(s) from tracking")
+
+
 def load_false_positives() -> List[Dict]:
     """Load false positives from JSON file"""
     try:
@@ -3771,6 +4082,9 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
         is_pattern_match = "_trigger_reasons" in detox_scores and "must_escalate" in detox_scores.get("_trigger_reasons", "")
         should_auto_remove, auto_remove_reason = check_auto_remove_consensus(detox_scores, cfg, is_pattern_match)
         
+        # Debug logging for auto-remove decision
+        logging.info(f"AUTO-REMOVE DEBUG: enabled={cfg.auto_remove_enabled}, require_models={cfg.auto_remove_require_models}, should_auto_remove={should_auto_remove}, reason={auto_remove_reason}")
+        
         # Build report reason (no longer need [TOX] tag since we're removing directly)
         reason = build_report_reason(result, include_filter_tag=False)
         
@@ -3810,14 +4124,46 @@ def process_thing(thing, detox_filter: DetoxifyFilter, analyzer: LLMAnalyzer, cf
                 
                 # Send Discord notification
                 if should_auto_remove:
-                    notify_discord_auto_remove(
-                        webhook=cfg.discord_webhook,
-                        comment_text=text,
-                        permalink=permalink,
-                        reason=result.reason,
-                        scores=detox_scores,
-                        auto_remove_reason=auto_remove_reason
-                    )
+                    # Get author name safely
+                    author_name = "unknown"
+                    try:
+                        if hasattr(thing, 'author') and thing.author:
+                            author_name = thing.author.name
+                    except:
+                        pass
+                    
+                    # Try Discord Bot first (for editable messages)
+                    if cfg.discord_bot_token and cfg.discord_review_channel_id:
+                        discord_msg_id = discord_bot_post_review(
+                            cfg=cfg,
+                            comment_text=text,
+                            permalink=permalink,
+                            reason=result.reason,
+                            scores=detox_scores,
+                            auto_remove_reason=auto_remove_reason,
+                            author=author_name
+                        )
+                        # Track for status updates if message was posted
+                        if discord_msg_id:
+                            add_pending_review(
+                                comment_id=thing_id.replace("t1_", "").replace("t3_", ""),
+                                discord_message_id=discord_msg_id,
+                                permalink=permalink,
+                                comment_text=text,
+                                reason=result.reason,
+                                scores=detox_scores,
+                                auto_remove_reason=auto_remove_reason
+                            )
+                    else:
+                        # Fallback to webhook (not editable)
+                        notify_discord_auto_remove(
+                            webhook=cfg.discord_webhook,
+                            comment_text=text,
+                            permalink=permalink,
+                            reason=result.reason,
+                            scores=detox_scores,
+                            auto_remove_reason=auto_remove_reason
+                        )
                 else:
                     notify_discord_report(
                         webhook=cfg.discord_webhook,
@@ -3977,6 +4323,10 @@ def main() -> None:
     else:
         logging.info("Discord notifications disabled (no webhook configured)")
     
+    # Log Discord Bot configuration
+    if cfg.discord_bot_token and cfg.discord_review_channel_id:
+        logging.info(f"Discord Bot enabled for editable review notifications (channel: {cfg.discord_review_channel_id})")
+    
     # Start accuracy check background thread
     accuracy_thread = threading.Thread(
         target=accuracy_check_loop, 
@@ -3985,6 +4335,28 @@ def main() -> None:
     )
     accuracy_thread.start()
     logging.info("Started accuracy tracking (checks every 12 hours)")
+    
+    # Start pending reviews check thread (for Discord Bot editable messages)
+    if cfg.discord_bot_token and cfg.discord_review_channel_id:
+        def pending_reviews_loop(reddit_client: praw.Reddit, config: Config):
+            """Check pending reviews for mod actions and update Discord messages"""
+            while True:
+                try:
+                    check_pending_reviews(reddit_client, config)
+                except Exception as e:
+                    logging.error(f"Pending reviews check failed: {e}")
+                time.sleep(config.discord_review_check_interval)
+        
+        reviews_thread = threading.Thread(
+            target=pending_reviews_loop,
+            args=(reddit, cfg),
+            daemon=True
+        )
+        reviews_thread.start()
+        logging.info(f"Started pending reviews tracker (checks every {cfg.discord_review_check_interval}s)")
+    else:
+        if cfg.enable_discord:
+            logging.info("Discord Bot not configured - review notifications will use webhook (not editable)")
     
     # Start daily stats thread
     def daily_stats_loop(discord_webhook: str, detox_filter: DetoxifyFilter, 
