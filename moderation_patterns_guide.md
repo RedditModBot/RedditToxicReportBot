@@ -23,7 +23,13 @@ Comment arrives
 │  (slurs, threats, insults)  │
 └─────────────────────────────┘
       │
-      ├── Slur/threat found ────► Send to AI immediately
+      ├── Hard pattern (slur/threat/self-harm) ──► Send to AI immediately
+      │
+      ├── Soft pattern (insult/shill/etc.) ──► ML Consensus Check
+      │         │
+      │         ├── All 3 ML models < 0.30 ──► SKIP (ML override)
+      │         └── Any ML model >= 0.30 ───► Send to AI
+      │
       ├── Benign phrase found ──► SKIP (no API call)
       │
       ▼
@@ -43,19 +49,25 @@ The JSON file has these main sections:
 
 ```json
 {
-  "slurs": { ... },                      // Always escalate to AI
-  "self_harm": { ... },                  // Always escalate to AI
-  "threats": { ... },                    // Always escalate to AI
-  "shill_accusations": { ... },          // Escalate when directed at user
-  "insults_direct": { ... },             // Escalate when directed at user
-  "dismissive_hostile": { ... },         // Escalate when directed at user
+  "slurs": { ... },                      // Always escalate to AI (hard pattern)
+  "self_harm": { ... },                  // Always escalate to AI (hard pattern)
+  "threats": { ... },                    // Always escalate to AI (hard pattern)
+  "shill_accusations": { ... },          // Escalate when directed (soft pattern)
+  "insults_direct": { ... },             // Escalate when directed (soft pattern)
+  "dismissive_hostile": { ... },         // Escalate when directed (soft pattern)
   "contextual_sensitive_terms": { ... }, // Escalate with additional signals
-  "benign_skip": { ... },                // Skip AI entirely
+  "benign_skip": {
+    "slur_exceptions": [...],            // Typos that look like slurs
+    "frustration_exclamations": [...],   // "holy shit", etc.
+    ...
+  },
   "public_figures": { ... },             // Names for context
   "obfuscation_map": { ... },            // Character substitutions
   "regex_patterns": { ... }              // Advanced patterns
 }
 ```
+
+**Soft vs Hard patterns:** Soft patterns can be overridden by ML consensus (all 3 models < 0.30). Hard patterns always go to AI.
 
 ---
 
@@ -203,7 +215,24 @@ Phrases that indicate a comment is harmless. If matched AND not directed at a us
 - Enthusiastic agreement (40+)
 - Third-party profanity (55+)
 - UFO skepticism phrases (50+)
+- Slur exceptions (typos, see below)
 - And more...
+
+**Slur Exceptions (`slur_exceptions`):**
+
+Some patterns look like slurs but are actually typos or innocent phrases. These prevent false positives:
+
+```json
+"slur_exceptions": [
+  "go poof", "goes poof", "went poof",     // "poof" = disappear, not slur
+  "kike this", "kike that", "posts kike",  // typo for "like" (K next to L on keyboard)
+  "looks kike", "sounds kike", "feels kike"
+]
+```
+
+**Why needed:**
+- "Plz ban posts kike this" = typo for "like", not antisemitic
+- "It went poof" = disappeared, not UK slur for gay
 
 ### 9. Public Figures
 
@@ -371,6 +400,12 @@ After modifying the patterns file:
    ```bash
    # Look for PREFILTER entries
    grep "PREFILTER" bot.log
+   
+   # See ML consensus skips (cost savings)
+   grep "ML_CONSENSUS_SKIP" bot.log
+   
+   # See what's being sent to AI
+   grep "MUST_ESCALATE" bot.log
    ```
 
 ---
@@ -379,14 +414,37 @@ After modifying the patterns file:
 
 | Pattern Type | API Calls | Speed |
 |--------------|-----------|-------|
-| Slur match | +1 (AI review) | Fast |
+| Hard pattern (slur/threat) | +1 (AI review) | Fast |
+| Soft pattern + ML consensus < 0.30 | 0 (ML override) | Fast |
+| Soft pattern + ML scores high | +1 (AI review) | Fast |
 | Benign skip | 0 (skipped) | Very fast |
 | No match | Depends on Detoxify | Medium |
+
+### ML Consensus Override
+
+When a "soft" pattern triggers (insult, shill accusation, dismissive, etc.), the bot checks ML scores before sending to AI:
+
+- If **all 3 ML models** (Detoxify, OpenAI, Perspective) score **below 0.30** → Skip AI (save money)
+- If **any model** scores **0.30 or higher** → Send to AI as normal
+
+**Hard patterns** (slurs, threats, self-harm) always go to AI regardless of ML scores.
+
+**Why this helps:**
+Pattern matching catches words like "dumb", "balls", "ignorant" which can be innocent:
+- "Dumb question, but..." → Pattern triggers, but ML scores 0.01 → Skip AI
+- "You're so dumb" → Pattern triggers, ML scores 0.75 → Send to AI
+
+**Soft patterns** (ML override allowed):
+- `insult`, `dismissive_soft`, `dismissive_hard`, `shill_accusation`, `regex_pattern`, `brigading`
+
+**Hard patterns** (always go to AI):
+- `slur`, `self-harm`, `threat`, `sexual_violence`, `violence_illegal`
 
 **Optimization tips:**
 - More benign_skip phrases = fewer API calls
 - Specific patterns > broad patterns
 - Test false positive rates after changes
+- ML consensus override automatically reduces unnecessary AI calls
 
 ---
 
