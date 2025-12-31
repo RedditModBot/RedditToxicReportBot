@@ -803,21 +803,23 @@ def build_shill_set() -> set:
     terms = PATTERNS.get("shill_accusations", {}).get("terms", [])
     return set(t.lower() for t in terms)
 
-def build_dismissive_hostile_sets() -> Tuple[set, set]:
+def build_dismissive_hostile_sets() -> Tuple[set, set, set]:
     """
     Build sets of dismissive/hostile phrases from JSON.
-    Returns (hard_phrases, soft_phrases)
+    Returns (hard_phrases, soft_phrases, gatekeeping_phrases)
     - Hard: Always escalate on reply (fuck off, eat shit, etc.)
     - Soft: Only escalate when strongly directed (cope, touch grass, etc.)
+    - Gatekeeping: "please don't post again", "delete your account", etc.
     """
     dismissive = PATTERNS.get("dismissive_hostile", {})
     hard = set(p.lower() for p in dismissive.get("hard", []))
     soft = set(p.lower() for p in dismissive.get("soft", []))
+    gatekeeping = set(p.lower() for p in dismissive.get("gatekeeping", []))
     # Fallback for old format
     if not hard and not soft:
         phrases = dismissive.get("phrases", [])
         hard = set(p.lower() for p in phrases)
-    return hard, soft
+    return hard, soft, gatekeeping
 
 def build_insult_sets() -> Tuple[set, set]:
     """
@@ -895,6 +897,28 @@ def build_contextual_terms_sets() -> Tuple[set, set]:
                     context_words.add(w_lower)
     return context_words, context_phrases
 
+def build_accusations_set() -> set:
+    """Build set of bad faith accusation phrases from JSON"""
+    phrases = set()
+    accusations = PATTERNS.get("accusations", {})
+    for category, words in accusations.items():
+        if category.startswith("_"):
+            continue
+        if isinstance(words, list):
+            phrases.update(w.lower() for w in words)
+    return phrases
+
+def build_harassment_sets() -> Tuple[set, set, set]:
+    """
+    Build sets of harassment phrases from JSON.
+    Returns (mod_accusations, condescension_mockery, emoji_mockery)
+    """
+    harassment = PATTERNS.get("harassment", {})
+    mod_accusations = set(p.lower() for p in harassment.get("mod_accusations", []))
+    condescension = set(p.lower() for p in harassment.get("condescension_mockery", []))
+    emoji = set(p for p in harassment.get("emoji_mockery", []))  # Don't lowercase emojis
+    return mod_accusations, condescension, emoji
+
 def build_slur_exceptions_set() -> set:
     """Build set of phrases that contain slurs but are benign (e.g., 'go poof')"""
     exceptions = PATTERNS.get("benign_skip", {}).get("slur_exceptions", [])
@@ -908,11 +932,13 @@ THREAT_PHRASES = build_threat_set()
 SEXUAL_VIOLENCE_PHRASES = build_sexual_violence_set()
 BRIGADING_PHRASES = build_brigading_set()
 SHILL_PHRASES = build_shill_set()
-DISMISSIVE_HARD_PHRASES, DISMISSIVE_SOFT_PHRASES = build_dismissive_hostile_sets()
+DISMISSIVE_HARD_PHRASES, DISMISSIVE_SOFT_PHRASES, DISMISSIVE_GATEKEEPING_PHRASES = build_dismissive_hostile_sets()
 INSULT_WORDS, INSULT_PHRASES = build_insult_sets()
 VIOLENCE_ILLEGAL_PHRASES = build_violence_illegal_set()
 CONTEXTUAL_WORDS, CONTEXTUAL_PHRASES = build_contextual_terms_sets()
 BENIGN_PHRASES_SET = build_benign_phrases_set()
+ACCUSATION_PHRASES = build_accusations_set()
+HARASSMENT_MOD_PHRASES, HARASSMENT_CONDESCENSION_PHRASES, HARASSMENT_EMOJI = build_harassment_sets()
 
 # Note: Pattern counts are logged when SmartPreFilter initializes (after logging is configured)
 
@@ -1254,9 +1280,10 @@ def contains_shill_accusation(text: str) -> bool:
 def contains_dismissive_hostile(text: str) -> Tuple[bool, str]:
     """
     Check if text contains dismissive/hostile phrases.
-    Returns (matched, type) where type is 'hard', 'soft', or '' if no match.
+    Returns (matched, type) where type is 'hard', 'soft', 'gatekeeping', or '' if no match.
     - Hard: Always escalate on reply (fuck off, stfu, etc.)
     - Soft: Only escalate when strongly directed (cope, touch grass, etc.)
+    - Gatekeeping: "please don't post again", "delete your account", etc.
     """
     normalized = normalize_text(text)
     
@@ -1266,11 +1293,52 @@ def contains_dismissive_hostile(text: str) -> Tuple[bool, str]:
         if re.search(pattern, normalized):
             return True, "hard"
     
+    # Check gatekeeping phrases (treat similar to hard)
+    for phrase in DISMISSIVE_GATEKEEPING_PHRASES:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
+            return True, "gatekeeping"
+    
     # Check soft phrases
     for phrase in DISMISSIVE_SOFT_PHRASES:
         pattern = r'\b' + re.escape(phrase) + r'\b'
         if re.search(pattern, normalized):
             return True, "soft"
+    
+    return False, ""
+
+def contains_accusation(text: str) -> bool:
+    """Check if text contains bad faith accusation phrases (e.g., 'you're lying')"""
+    normalized = normalize_text(text)
+    for phrase in ACCUSATION_PHRASES:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
+            return True
+    return False
+
+def contains_harassment(text: str) -> Tuple[bool, str]:
+    """
+    Check if text contains harassment patterns.
+    Returns (matched, type) where type is 'mod_accusation', 'condescension', 'emoji', or ''.
+    """
+    normalized = normalize_text(text)
+    
+    # Check mod accusations
+    for phrase in HARASSMENT_MOD_PHRASES:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
+            return True, "mod_accusation"
+    
+    # Check condescension/mockery
+    for phrase in HARASSMENT_CONDESCENSION_PHRASES:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
+            return True, "condescension"
+    
+    # Check emoji mockery (check original text, not normalized)
+    for emoji in HARASSMENT_EMOJI:
+        if emoji in text:
+            return True, "emoji"
     
     return False, ""
 
@@ -1791,7 +1859,8 @@ class SmartPreFilter:
                      f"{len(CONTEXTUAL_WORDS)} contextual words, {len(CONTEXTUAL_PHRASES)} contextual phrases, "
                      f"{len(SELF_HARM_PHRASES)} self-harm, {len(THREAT_PHRASES)} threats, "
                      f"{len(INSULT_WORDS)} insult words, {len(INSULT_PHRASES)} insult phrases, "
-                     f"{len(MUST_ESCALATE_RE)} regex patterns")
+                     f"{len(ACCUSATION_PHRASES)} accusations, {len(HARASSMENT_MOD_PHRASES)+len(HARASSMENT_CONDESCENSION_PHRASES)+len(HARASSMENT_EMOJI)} harassment, "
+                     f"{len(DISMISSIVE_GATEKEEPING_PHRASES)} gatekeeping, {len(MUST_ESCALATE_RE)} regex patterns")
         
         # Log thresholds
         logging.info(f"Thresholds: threat={config.threshold_threat}, severe_toxicity={config.threshold_severe_toxicity}, "
@@ -1926,7 +1995,27 @@ class SmartPreFilter:
         if not must_escalate_reason and is_strongly_directed(text) and contains_shill_accusation(text):
             must_escalate_reason = "must_escalate:shill_accusation"
         
-        # Check dismissive/hostile - now split into hard and soft
+        # Check bad faith accusations (only if directed)
+        if not must_escalate_reason and is_strongly_directed(text) and contains_accusation(text):
+            must_escalate_reason = "must_escalate:accusation"
+        
+        # Check harassment patterns (mod accusations, condescension, emoji mockery)
+        if not must_escalate_reason:
+            has_harassment, harassment_type = contains_harassment(text)
+            if has_harassment:
+                if not matches_any_benign_pattern(text):
+                    if harassment_type == "mod_accusation":
+                        must_escalate_reason = "must_escalate:harassment_mod"
+                    elif harassment_type == "condescension":
+                        if is_strongly_directed(text) or not is_top_level:
+                            context = "directed" if is_strongly_directed(text) else "reply"
+                            must_escalate_reason = f"must_escalate:harassment_condescension+{context}"
+                    elif harassment_type == "emoji":
+                        if is_strongly_directed(text) or not is_top_level:
+                            context = "directed" if is_strongly_directed(text) else "reply"
+                            must_escalate_reason = f"must_escalate:harassment_emoji+{context}"
+        
+        # Check dismissive/hostile - now split into hard, soft, and gatekeeping
         # BUT skip if benign pattern matches (e.g., "this bullshit argument" is criticizing idea, not person)
         if not must_escalate_reason:
             has_dismissive, dismissive_type = contains_dismissive_hostile(text)
@@ -1937,7 +2026,10 @@ class SmartPreFilter:
                         if is_strongly_directed(text) or not is_top_level:
                             context = "directed" if is_strongly_directed(text) else "reply"
                             must_escalate_reason = f"must_escalate:dismissive_hard+{context}"
-                    else:
+                    elif dismissive_type == "gatekeeping":
+                        # Gatekeeping is inherently directed - always escalate
+                        must_escalate_reason = "must_escalate:dismissive_gatekeeping"
+                    else:  # soft
                         if is_strongly_directed(text):
                             must_escalate_reason = "must_escalate:dismissive_soft+directed"
         
@@ -1953,26 +2045,9 @@ class SmartPreFilter:
         
         # If must_escalate triggered, still get ML scores for context, then return
         if must_escalate_reason:
+            self.must_escalate += 1
             scores = self._get_ml_scores(text, is_top_level)
             scores["_trigger_reasons"] = must_escalate_reason
-            
-            # ML Consensus Override: For "soft" patterns, if ALL 3 ML models score below 0.3,
-            # skip the expensive LLM call - the models agree it's benign despite the pattern match
-            soft_patterns = {"insult", "dismissive_soft", "dismissive_hard", "shill_accusation", "regex_pattern", "brigading"}
-            is_soft_pattern = any(p in must_escalate_reason for p in soft_patterns)
-            
-            if is_soft_pattern:
-                # Extract max scores from each model
-                detox_max = max((v for k, v in scores.items() if not k.startswith(('openai_', 'perspective_', '_')) and isinstance(v, (int, float))), default=0)
-                openai_max = max((v for k, v in scores.items() if k.startswith('openai_') and isinstance(v, (int, float))), default=0)
-                persp_max = max((v for k, v in scores.items() if k.startswith('perspective_') and isinstance(v, (int, float))), default=0)
-                
-                ml_consensus_threshold = 0.3
-                if detox_max < ml_consensus_threshold and openai_max < ml_consensus_threshold and persp_max < ml_consensus_threshold:
-                    logging.info(f"PREFILTER | ML_CONSENSUS_SKIP | Pattern '{must_escalate_reason}' but ML scores all <{ml_consensus_threshold} (detox={detox_max:.2f}, openai={openai_max:.2f}, persp={persp_max:.2f}) | '{text_preview}...'")
-                    return False, max(detox_max, openai_max, persp_max), scores
-            
-            self.must_escalate += 1
             logging.info(f"PREFILTER | MUST_ESCALATE ({must_escalate_reason}) | '{text_preview}...'")
             return True, 1.0, scores
         
