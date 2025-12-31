@@ -12,17 +12,35 @@ An automated Reddit moderation bot that uses AI to detect and report toxic comme
 | LAYER 1: MUST-ESCALATE PATTERNS                                |
 |                                                                |
 |  Check for: slurs, self-harm, threats, violence                |
-|  These ALWAYS send to LLM (no benign skip allowed)             |
+|  These ALWAYS send to LLM (no ML override allowed)             |
 |                                                                |
-|  Also check: dismissive language + direct insults              |
-|  BUT skip if benign pattern matches (e.g., "bullshit argument")|
+|  Also check: dismissive language, direct insults, shill accuse |
+|  These are "soft" patterns - ML consensus can override them    |
 |                                                                |
-|  If triggered -> SEND TO LLM (with ML scores for context)      |
+|  If triggered -> Get ML scores -> Check for ML override...     |
 +----------------------------------------------------------------+
                                   |
-                            Not triggered
-                                  |
-                                  v
+                   +--------------+--------------+
+                   |                             |
+            Soft pattern                   Hard pattern
+            (insult, shill, etc.)          (slur, threat, etc.)
+                   |                             |
+                   v                             |
++----------------------------------+             |
+| ML CONSENSUS OVERRIDE            |             |
+|                                  |             |
+| If ALL 3 models score < 0.30:    |             |
+|   -> SKIP (ML agrees benign)     |             |
+| Else:                            |             |
+|   -> SEND TO LLM                 |-------------+
++----------------------------------+             |
+                                                 |
+                                                 v
+                                          SEND TO LLM
+                                                 |
+                            (Pattern didn't trigger)
+                                                 |
+                                                 v
 +----------------------------------------------------------------+
 | LAYER 2: RUN ALL ML MODELS                                     |
 |                                                                |
@@ -79,6 +97,19 @@ An automated Reddit moderation bot that uses AI to detect and report toxic comme
                                       +-------------------+
 ```
 
+### ML Consensus Override
+
+When a "soft" pattern triggers (insult, dismissive, shill accusation, etc.), the bot checks if all three ML models agree the content is benign (scores < 0.30). If so, it skips the expensive LLM call.
+
+**Soft patterns** (ML override allowed): `insult`, `dismissive_soft`, `dismissive_hard`, `shill_accusation`, `regex_pattern`, `brigading`
+
+**Hard patterns** (always go to LLM): `slur`, `self-harm`, `threat`, `sexual_violence`, `violence_illegal`
+
+This saves LLM costs on false pattern matches like:
+- "balls of light" triggering "balls" insult pattern
+- "Dumb question, but..." triggering "dumb" pattern
+- "knee-jerk reaction" triggering "jerk" pattern
+
 ### Decision Examples
 
 | Comment | Layer 1 | Detox | OpenAI | Persp | Result |
@@ -87,11 +118,13 @@ An automated Reddit moderation bot that uses AI to detect and report toxic comme
 | "it's a fucking plane" | - | 0.95 | 0.10 | 0.15 | **SKIP** (detox-only, external < 0.30) |
 | "Holy shit that's cool" | - | 0.90 | 0.05 | 0.10 | **SKIP** (detox-only, external < 0.30) |
 | "Same old bullshit argument" | benign | - | - | - | **SKIP** (Layer 1 benign match) |
+| "Dumb question, but..." | insult | 0.16 | 0.01 | 0.03 | **SKIP** (ML consensus < 0.30) |
+| "three balls of light" | insult | 0.22 | 0.00 | 0.04 | **SKIP** (ML consensus < 0.30) |
 | "Edgy comment" | - | 0.80 | 0.10 | 0.35 | **SEND** (detox + external >= 0.30) |
-| "You're an idiot" | - | 0.85 | 0.75 | 0.40 | **SEND** (OpenAI triggered) |
+| "You're an idiot" | insult | 0.85 | 0.75 | 0.40 | **SEND** (ML scores high, no override) |
 | "Hate speech" | - | 0.91 | 0.89 | 0.72 | **SEND** (multiple triggered) |
-| "Kill yourself" | must_escalate | - | - | - | **SEND** (Layer 1 self-harm) |
-| "You're a retard" | must_escalate | - | - | - | **SEND** (Layer 1 slur) |
+| "Kill yourself" | must_escalate | - | - | - | **SEND** (Layer 1 self-harm, hard pattern) |
+| "You're a retard" | must_escalate | - | - | - | **SEND** (Layer 1 slur, hard pattern) |
 
 ### Key Insight: Why External Validation?
 
@@ -541,7 +574,54 @@ Thresholds control how sensitive the pre-filter is. Scores range from 0.0 to 1.0
 
 ## Discord Notifications
 
-If configured, the bot sends these notifications:
+The bot supports two Discord integration methods:
+
+### Option 1: Webhook (Simple)
+
+Basic notifications via Discord webhook. Messages are static (don't update).
+
+**Setup:**
+1. Go to your Discord server
+2. Edit a channel -> Integrations -> Webhooks -> New Webhook
+3. Copy the webhook URL to your `.env`
+
+```bash
+ENABLE_DISCORD=true
+DISCORD_WEBHOOK=https://discord.com/api/webhooks/xxx/yyy
+```
+
+### Option 2: Discord Bot (Advanced)
+
+More advanced integration using a Discord bot account. Messages are **editable** and update in-place when mod actions occur.
+
+**Benefits:**
+- Messages update in real-time (shows removed/approved status)
+- Cleaner review queue (no duplicate notifications)
+- Track pending reviews directly in Discord
+
+**Setup:**
+1. Go to https://discord.com/developers/applications
+2. Create a new application -> Bot -> Reset Token -> Copy token
+3. Enable **MESSAGE CONTENT INTENT** under Bot -> Privileged Gateway Intents
+4. Generate invite URL: OAuth2 -> URL Generator -> Select `bot` scope
+5. Add permissions: Send Messages, Read Message History, Embed Links
+6. Invite bot to your server using the generated URL
+7. Enable Developer Mode in Discord (User Settings -> Advanced)
+8. Right-click your review channel -> Copy ID
+9. Add to your `.env`:
+
+```bash
+DISCORD_BOT_TOKEN=your_bot_token_here
+DISCORD_REVIEW_CHANNEL_ID=1234567890123456789
+DISCORD_REVIEW_CHECK_INTERVAL=120
+```
+
+The bot will post editable messages that show:
+- Initial report with all ML scores and LLM reasoning
+- Updated status when mods remove or approve the comment
+- Color changes: Red (reported) -> Green (removed) or Orange (approved/FP)
+
+### Notification Types
 
 | Notification | Color | Meaning |
 |--------------|-------|---------|
@@ -753,11 +833,17 @@ PREFILTER | SKIP | Detox:0.02 | OpenAI:0.01 | Persp:0.03 | 'I think UFOs are rea
 # Detox triggered but external low - skipped
 PREFILTER | SKIP (detox-only, external APIs low: OpenAI=0.10, Persp=0.15) | Detox:0.95 | OpenAI:0.10 | Persp:0.15 | 'it's a fucking plane...'
 
+# Soft pattern triggered but ML consensus says benign - skipped (saves LLM cost)
+PREFILTER | ML_CONSENSUS_SKIP | Pattern 'must_escalate:insult+reply' but ML scores all <0.3 (detox=0.16, openai=0.00, persp=0.04) | 'Dumb question but...'
+
 # Sent to LLM - external APIs triggered
 PREFILTER | SEND (detoxify:toxicity=0.91 + openai:harassment=0.89) [directed, reply] | Detox:0.91 | OpenAI:0.89 | Persp:0.72 | 'you're pathetic...'
 
-# Must-escalate pattern (slur, threat, etc.)
+# Must-escalate hard pattern (slur, threat, etc.) - always goes to LLM
 PREFILTER | MUST_ESCALATE (must_escalate:slur) | 'you retard...'
+
+# Must-escalate soft pattern with high ML scores - goes to LLM
+PREFILTER | MUST_ESCALATE (must_escalate:insult+directed) | 'you're such an idiot...'
 ```
 
 Score meanings:
@@ -845,7 +931,7 @@ Edit `moderation_patterns.json` to add/remove:
 | `bot.py` | Main bot code |
 | `moderation_guidelines.txt` | Instructions for the AI on what to report (customize this!) |
 | `moderation_guidelines_template.txt` | Annotated template with explanations for customization |
-| `moderation_patterns.json` | Word lists for pre-filtering (~950 benign, slurs, insults, etc.) |
+| `moderation_patterns.json` | Word lists for pre-filtering (~1700+ patterns: benign skips, slurs, insults, etc.) |
 | `env.template` | Template for `.env` configuration |
 | `requirements.txt` | Python dependencies |
 | `bot_stats.json` | Auto-generated bot pipeline stats (persists across restarts) |
@@ -878,9 +964,23 @@ Edit `moderation_patterns.json` to add/remove:
 - Enable both OpenAI and Perspective with `MODE=all` for better external validation
 
 ### Discord notifications not working
+
+**Webhook issues:**
 - Check webhook URL is correct
 - Check for "Discord embed post failed" in logs
-- Test webhook with curl
+- Test webhook with curl:
+  ```bash
+  curl -X POST -H "Content-Type: application/json" \
+    -d '{"content":"Test message"}' \
+    "YOUR_WEBHOOK_URL"
+  ```
+
+**Bot issues:**
+- Check bot token is correct (reset and copy fresh if needed)
+- Verify MESSAGE CONTENT INTENT is enabled in Discord Developer Portal
+- Check bot has permissions in the channel (Send Messages, Read Message History, Embed Links)
+- Verify channel ID is correct (enable Developer Mode, right-click channel -> Copy ID)
+- Check for "Discord Bot" related errors in logs
 
 ### Reddit 502/504 errors
 These are Reddit API hiccups - the bot handles them automatically with retries. If you see them constantly for several minutes, Reddit may be having issues.
