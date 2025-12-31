@@ -1,7 +1,19 @@
 {
   "_comment": "Comprehensive moderation patterns for ToxicReportBot. Edit these without touching bot.py",
-  "_version": "1.1",
-  "_last_updated": "2025-12-14",
+  "_version": "1.2",
+  "_last_updated": "2025-12-31",
+  "_changelog": [
+    "1.2: Added patterns from audit analysis (337 comments, 22 flagged)",
+    "- NEW: accusations.bad_faith category",
+    "- NEW: dismissive_hostile.gatekeeping category", 
+    "- NEW: insults_direct.condescension category",
+    "- NEW: harassment.mod_accusations category",
+    "- Added to shill_accusations: bad actor, bad actors",
+    "- Added to insults_direct.intelligence: can't identify shit variants",
+    "- Added to insults_direct.mental_health: you need help variants",
+    "- Added to insults_direct.character: snake oil salesman, attention seeking",
+    "- Added emoji mockery pattern: 🤡"
+  ],
   "_important_notes": [
     "Do NOT skip LLM on single words like 'crazy' or 'insane'. Only skip phrase matches AND only when NOT directed at a user.",
     "Keep ambiguous terms (e.g., 'queer', 'trap', 'it/its') out of 'always escalate' lists. Put them in contextual lists.",
@@ -612,6 +624,19 @@
       "doxx them"
     ]
   },
+  "accusations": {
+    "_comment": "NEW in v1.2 - Bad faith accusations directed at users",
+    "bad_faith": [
+      "you are lying",
+      "you're lying",
+      "youre lying",
+      "u are lying",
+      "ur lying",
+      "you liar",
+      "you're a liar",
+      "youre a liar"
+    ]
+  },
   "shill_accusations": {
     "_comment": "Accusations of being paid agents/bots - escalate when directed at users",
     "terms": [
@@ -709,7 +734,36 @@
       "commenters are bots",
       "shut down by bots",
       "comments are all bots",
-      "sub is full of bots"
+      "sub is full of bots",
+      "bad actor",
+      "bad actors",
+      "known disinformation agent"
+    ]
+  },
+  "harassment": {
+    "_comment": "NEW in v1.2 - Harassment patterns including mod accusations and condescension",
+    "mod_accusations": [
+      "moderators are incentivized",
+      "mods are incentivized",
+      "mods are paid",
+      "moderators are paid",
+      "mods are shills",
+      "moderators are shills",
+      "mods are corrupt",
+      "moderators are corrupt"
+    ],
+    "condescension_mockery": [
+      "keep your mouth wide open",
+      "nod along",
+      "do people actually take this seriously",
+      "hard to take you serious",
+      "hard to take you seriously",
+      "hard to take anyone seriously",
+      "can't take you seriously",
+      "cant take you seriously"
+    ],
+    "emoji_mockery": [
+      "🤡"
     ]
   },
   "insults_direct": {
@@ -783,7 +837,12 @@
       "idot",
       "moran",
       "morans",
-      "dumas"
+      "dumas",
+      "can't identify shit",
+      "cant identify shit",
+      "couldn't identify shit",
+      "couldnt identify shit",
+      "random shit for attention"
     ],
     "character": [
       "loser",
@@ -953,7 +1012,13 @@
       "dumb-ass",
       "smart ass",
       "smart-ass",
-      "smartass"
+      "smartass",
+      "snake oil salesman",
+      "snake oil salesmen",
+      "snake-oil salesman",
+      "attention seeking",
+      "attention seeker",
+      "attention seekers"
     ],
     "mental_health": [
       "take your meds",
@@ -1038,7 +1103,33 @@
       "somethings wrong with you",
       "whats wrong with you",
       "what's wrong with you",
-      "tf is wrong with you"
+      "tf is wrong with you",
+      "you need help",
+      "y'all need help",
+      "yall need help",
+      "you all need help"
+    ],
+    "condescension": [
+      "first time going outside",
+      "first time outside",
+      "is it your first time outside",
+      "never seen a spotlight before",
+      "never seen a plane before",
+      "never seen a drone before",
+      "never seen a bird before",
+      "welcome to the world",
+      "welcome to earth",
+      "welcome to reality",
+      "little fantasies",
+      "your little fantasies",
+      "your little theory",
+      "your little ideas"
+    ],
+    "group_generalizations": [
+      "religious nuts",
+      "religious nutjobs",
+      "bible thumpers",
+      "conspiracy nuts"
     ]
   },
   "dismissive_hostile": {
@@ -1140,6 +1231,24 @@
       "youre making yourself look",
       "youre really smart",
       "youre so smart"
+    ],
+    "gatekeeping": [
+      "please don't post again",
+      "please dont post again",
+      "dont post again",
+      "don't post again",
+      "do not post again",
+      "stop posting",
+      "please stop posting",
+      "never post again",
+      "delete your account",
+      "delete your reddit",
+      "leave this sub",
+      "leave the sub",
+      "get off this sub",
+      "get out of this sub",
+      "you don't belong here",
+      "you dont belong here"
     ]
   },
   "benign_skip": {
@@ -1936,7 +2045,7 @@
       "say it louder",
       "louder for the people in the back",
       "you dropped this king",
-      "you dropped this \ud83d\udc51",
+      "you dropped this 👑",
       "w take",
       "w comment"
     ],
@@ -2441,12 +2550,12 @@
       "$": "s",
       "!": "i",
       "+": "t",
-      "\u20ac": "e",
-      "\u00a5": "y",
-      "\u00a9": "c",
-      "\u00ae": "r",
-      "\u00a1": "i",
-      "\u00a3": "e"
+      "€": "e",
+      "¥": "y",
+      "©": "c",
+      "®": "r",
+      "¡": "i",
+      "£": "e"
     },
     "common_evasions": {
       "ph": "f"
