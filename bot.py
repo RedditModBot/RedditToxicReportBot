@@ -1953,9 +1953,26 @@ class SmartPreFilter:
         
         # If must_escalate triggered, still get ML scores for context, then return
         if must_escalate_reason:
-            self.must_escalate += 1
             scores = self._get_ml_scores(text, is_top_level)
             scores["_trigger_reasons"] = must_escalate_reason
+            
+            # ML Consensus Override: For "soft" patterns, if ALL 3 ML models score below 0.3,
+            # skip the expensive LLM call - the models agree it's benign despite the pattern match
+            soft_patterns = {"insult", "dismissive_soft", "dismissive_hard", "shill_accusation", "regex_pattern", "brigading"}
+            is_soft_pattern = any(p in must_escalate_reason for p in soft_patterns)
+            
+            if is_soft_pattern:
+                # Extract max scores from each model
+                detox_max = max((v for k, v in scores.items() if not k.startswith(('openai_', 'perspective_', '_')) and isinstance(v, (int, float))), default=0)
+                openai_max = max((v for k, v in scores.items() if k.startswith('openai_') and isinstance(v, (int, float))), default=0)
+                persp_max = max((v for k, v in scores.items() if k.startswith('perspective_') and isinstance(v, (int, float))), default=0)
+                
+                ml_consensus_threshold = 0.3
+                if detox_max < ml_consensus_threshold and openai_max < ml_consensus_threshold and persp_max < ml_consensus_threshold:
+                    logging.info(f"PREFILTER | ML_CONSENSUS_SKIP | Pattern '{must_escalate_reason}' but ML scores all <{ml_consensus_threshold} (detox={detox_max:.2f}, openai={openai_max:.2f}, persp={persp_max:.2f}) | '{text_preview}...'")
+                    return False, max(detox_max, openai_max, persp_max), scores
+            
+            self.must_escalate += 1
             logging.info(f"PREFILTER | MUST_ESCALATE ({must_escalate_reason}) | '{text_preview}...'")
             return True, 1.0, scores
         
