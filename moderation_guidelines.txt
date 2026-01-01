@@ -74,8 +74,10 @@ TOXIC BEHAVIOR INCLUDES:
    - Mental health attacks: "take your meds", "you're schizo", "seek help", "off your meds"
    - Dismissive hostility: "fuck off", "nobody asked", "go away", "shut the fuck up"
    - Condescension/sarcasm AT users: "wow you're smart", "figured that out yourself?"
+   - Condescension openers: "Oh dear", "Oh honey" + criticism of user's work
    - Sexual harassment/taunts: "sucking his dick", "dickriding", "on his dick"
    - Dehumanizing comparisons: "you're cancer", "parasite", "subhuman", "waste of oxygen"
+   - Mocking: "It's amusing watching you...", "watching you get called out"
 
 2) ACCUSATIONS & BAD FAITH
    - Shill/bot accusations: "you're a fed", "obvious bot", "paid disinfo agent"
@@ -265,16 +267,30 @@ REDDIT USERS (the person you're replying to) = REPORT if insulting:
 
 KEY SIGNALS that it's about a THIRD PARTY (not a user):
 - Comment discusses someone mentioned in the post title
-- Uses "he/she/they/this guy/that person" (third person)
+- Uses "he/she/they/this guy/that person" in TOP-LEVEL comments (third person)
 - References a name from the video/article
 - No "you/your/OP" language
 - Is a top-level comment (not a reply attacking someone)
+- NOTE: "this guy" in a REPLY may refer to the parent commenter - see below
 
 KEY SIGNALS that it's aimed at a USER:
 - Uses "you/your/you're" directly
 - Is a reply that attacks the parent commenter
 - Uses "OP" to refer to the poster
 - Says "everyone here" or "this sub's users"
+
+INDIRECT USER TARGETING (often missed):
+In REPLIES, watch for these patterns that target users without saying "you":
+- "This guy" / "this specific guy" in a reply = likely targeting parent commenter = REPORT
+- "OP" + profanity/criticism = attacking the original poster = REPORT
+  Example: "All this hype from OP just to have shitty footage" = REPORT
+- "This specific guy posts useless information" = targeting a user = REPORT
+- "watching you get called out" + mockery = mocking the user = REPORT
+- Condescension patterns directed at user's work/post = REPORT
+  Example: "Oh dear, you've been using ChatGPT... What utter garbage" = REPORT
+
+The test: In a REPLY, if "this guy" or "OP" could be replaced with "you" and it
+would clearly be an attack, then it's still an attack.
 
 =====================
 COMMON FALSE POSITIVE PATTERNS (LEARN THESE!)
@@ -357,6 +373,10 @@ These are ALWAYS violations regardless of context:
    - "congratulations, you can read"
    - "bless your heart" / "sweet summer child"
    - "reading comprehension" (as insult)
+   - "Oh dear" / "Oh honey" + criticism
+   - "Do yourself a favour" + dismissive advice
+   - "Yeah ok bud" / "Sure thing buddy" (dismissive)
+   - "It's amusing watching you..." (mocking)
 
 4. DISMISSIVE HOSTILITY AT USERS
    - "fuck off" / "go away"
@@ -515,6 +535,8 @@ REPORT (attacks on USERS or COMMUNITY):
 - "Everyone here is an idiot" - attacks users = REPORT
 - "OP is full of shit" - attacks the poster = REPORT
 - "You're wasting everyone's time" - attacks user = REPORT
+- "All this hype from OP just to have shitty footage" - attacks OP = REPORT
+- "This specific guy posts useless information" - targets user = REPORT
 
 The test: Replace the subject with "the video" or "the claims":
 - "The video is garbage" - sounds like an opinion = BENIGN
@@ -547,6 +569,10 @@ CONDESCENDING SNARK (context-dependent):
 - "Sure, buddy" - if dismissing user = REPORT, if playful = BENIGN
 - "Whatever you say" - usually condescending = lean REPORT
 - "Ok pal" - usually condescending = lean REPORT
+- "Oh dear" + criticism of user's work = condescension = REPORT
+- "Do yourself a favour and..." + dismissive advice = REPORT
+- "Yeah ok bud" - dismissive = lean REPORT
+- "It's amusing watching you..." - mocking = REPORT
 
 Look for friendly indicators (lol, emojis, ;) wink) vs hostile context.
 
