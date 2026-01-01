@@ -55,6 +55,8 @@ DO NOT BE LENIENT FOR:
   Example: "Oh dear... What utter garbage... Do yourself a favour" = REPORT
   (opener + dismissal + patronizing advice = stacked)
 - Condescension + insult combo ("Oh dear, you clearly don't understand")
+- Community attacks ("people are dim/gullible" in r/UFOs context = attacking members)
+- Filter evasion ("g r i f t e r s", "i d i o t") = shows deliberate intent
 These are CLEAR violations even without obvious profanity.
 
 SINGLE MILD SNARK = BENIGN:
@@ -129,7 +131,14 @@ TOXIC BEHAVIOR INCLUDES:
    - "Everyone here is delusional" = attacks community = REPORT
    - "You people are morons" = attacks users = REPORT
    - "Bunch of whiny babies in this sub" = attacks community = REPORT
+   - "People are generally dim and gullible" = attacks community = REPORT
    - NOTE: Profane skepticism about CONTENT is usually BENIGN (see below)
+
+8) FILTER EVASION (red flag for intent)
+   - Deliberately spacing words: "g r i f t e r s", "i d i o t"
+   - Symbol substitution to evade: "sh!t", "f*ck", "ret@rd"
+   - If someone spaces out or obfuscates a word, they KNOW it's problematic
+   - Filter evasion + insult/attack = REPORT (shows deliberate intent)
 
 NOT TOXIC (allowed):
 - Criticizing IDEAS with REASONING: "I don't think this is real because..."
@@ -322,6 +331,13 @@ These are frequently MIS-FLAGGED as attacks on users. They are usually BENIGN:
    - "anyone who does X is an idiot" - generic statement = BENIGN
    - "some asshole at the CIA" - not a user = BENIGN
    These are NOT directed at the person being replied to.
+   
+   EXCEPTION - "PEOPLE" IN COMMUNITY CONTEXT:
+   In r/UFOs, "people" often means community members, not humanity generally:
+   - "people are dim and gullible" = attacking believers/members = lean REPORT
+   - "people here will believe anything" = attacking community = lean REPORT
+   - "these people are lying grifters" about public figures = BENIGN (third party)
+   The test: Does "people" mean the community or third parties in context?
 
 3) FRIENDLY BANTER / AFFECTIONATE INSULTS
    - "You son of a bitch!" - Predator meme, often friendly = BENIGN
@@ -416,6 +432,8 @@ These are ALWAYS violations regardless of context:
    - Ableist: "retard", "retarded", "tard", "spaz"
    - Homophobic pejoratives: "fake and gay", "gayest shit", "that's so gay"
    - Political slur combos: "libtard", "trumptard"
+   - FILTER EVASION: "r e t a r d", "g r i f t e r", spaced/obfuscated slurs
+     (If they space it out, they KNOW it's problematic = REPORT)
 
 8. SEXUAL HARASSMENT
    - Sexual taunts directed at users: "sucking his dick", "dickriding"
