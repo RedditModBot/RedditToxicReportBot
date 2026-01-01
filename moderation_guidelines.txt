@@ -37,30 +37,44 @@ WHEN IN DOUBT: BE CONSERVATIVE (LEAN BENIGN)
 =====================
 The mod team prefers FALSE NEGATIVES over FALSE POSITIVES.
 
-ASK YOURSELF: "Is this truly toxic? Should I bother a mod with reviewing this?"
-- If the answer isn't a clear YES, choose BENIGN.
+ASK YOURSELF: "Is this attacking a USER, or just criticizing CONTENT/IDEAS?"
+- Attacking content/ideas (even harshly) = usually BENIGN
+- Attacking a user directly or indirectly = usually REPORT
 
-- If you have to think hard about whether something is toxic, it's probably BENIGN
-- Borderline cases should NOT be reported - only clear violations
-- A comment that's "maybe rude" or "slightly condescending" = BENIGN
-- A comment that's "clearly attacking a user with insults" = REPORT
+BE CONSERVATIVE FOR:
+- Profanity about content/videos/claims (not users)
+- Criticism of third parties/public figures
+- Blunt skepticism without personal attacks
+- Tone that's rude but not targeted at a user
 
-THE TEST: Can you confidently quote the specific phrase that violates Rule 1?
-- YES, clearly ("you're an idiot") = REPORT
-- MAYBE, not sure = BENIGN
-- NO, it's just rude/blunt/skeptical = BENIGN
+DO NOT BE LENIENT FOR:
+- Clear insults using "you/your/OP" or targeting specific users
+- Mocking users ("It's amusing watching you...", "watching you get called out")
+- Indirect attacks ("this guy posts useless info" in a reply)
+- STACKED condescension (multiple condescending elements in one comment)
+  Example: "Oh dear... What utter garbage... Do yourself a favour" = REPORT
+  (opener + dismissal + patronizing advice = stacked)
+- Condescension + insult combo ("Oh dear, you clearly don't understand")
+These are CLEAR violations even without obvious profanity.
 
-REPORT ONLY when you can:
+SINGLE MILD SNARK = BENIGN:
+- "Sure, if you say so" (mild, one element) = BENIGN
+- "Oh dear" alone without dismissal/insult = BENIGN
+- Brief sarcasm without personal attack = BENIGN
+The test: Is condescension STACKED or combined with attacks? If yes, REPORT.
+
+THE TEST: Can you identify WHO is being attacked?
+- A USER (you/OP/this guy in reply) = lean REPORT
+- CONTENT/IDEAS/THIRD PARTIES = lean BENIGN
+
+REPORT when you can:
 1. Identify a CLEAR target (a Reddit user, not third party)
-2. Quote a SPECIFIC phrase that is unambiguously an attack
+2. Quote a SPECIFIC phrase that attacks that user
 3. Explain in under 10 words why it violates Rule 1
 
-If any of these are unclear, choose BENIGN.
-
-WHY BE CONSERVATIVE?
-- Mods don't want borderline cases cluttering the modqueue
-- Over-reporting trains users to ignore reports
-- Blunt/rude is not the same as toxic
+WHY BE CONSERVATIVE ON CONTENT CRITICISM?
+- Mods don't want profane-but-harmless skepticism cluttering the queue
+- "This is bullshit" about a video is not the same as attacking users
 - Skepticism and criticism are valuable, even when harsh
 
 =====================
@@ -74,7 +88,7 @@ TOXIC BEHAVIOR INCLUDES:
    - Mental health attacks: "take your meds", "you're schizo", "seek help", "off your meds"
    - Dismissive hostility: "fuck off", "nobody asked", "go away", "shut the fuck up"
    - Condescension/sarcasm AT users: "wow you're smart", "figured that out yourself?"
-   - Condescension openers: "Oh dear", "Oh honey" + criticism of user's work
+   - Stacked condescension: "Oh dear" + "What garbage" + "Do yourself a favour" (multiple elements)
    - Sexual harassment/taunts: "sucking his dick", "dickriding", "on his dick"
    - Dehumanizing comparisons: "you're cancer", "parasite", "subhuman", "waste of oxygen"
    - Mocking: "It's amusing watching you...", "watching you get called out"
@@ -367,16 +381,15 @@ These are ALWAYS violations regardless of context:
    - "off your meds again"
    - "schizopost" / "schizo posting"
 
-3. CONDESCENSION/SARCASM AT USERS
-   - "wow, you're really smart"
-   - "figured that out all by yourself?"
+3. CONDESCENSION/SARCASM AT USERS (clear/stacked, not mild snark)
+   - "wow, you're really smart" / "figured that out all by yourself?"
    - "congratulations, you can read"
    - "bless your heart" / "sweet summer child"
    - "reading comprehension" (as insult)
-   - "Oh dear" / "Oh honey" + criticism
-   - "Do yourself a favour" + dismissive advice
-   - "Yeah ok bud" / "Sure thing buddy" (dismissive)
-   - "It's amusing watching you..." (mocking)
+   - Stacked condescension: "Oh dear... What garbage... Do yourself a favour"
+   - Mocking + dismissal: "It's amusing watching you..." + criticism
+   NOTE: Single mild snarky phrases alone (e.g. "sure buddy") = usually BENIGN
+         Stacked or combined with insults/dismissal = REPORT
 
 4. DISMISSIVE HOSTILITY AT USERS
    - "fuck off" / "go away"
@@ -566,15 +579,18 @@ vs.
 The test: Does it EXPLAIN anything or just express contempt?
 
 CONDESCENDING SNARK (context-dependent):
-- "Sure, buddy" - if dismissing user = REPORT, if playful = BENIGN
-- "Whatever you say" - usually condescending = lean REPORT
-- "Ok pal" - usually condescending = lean REPORT
-- "Oh dear" + criticism of user's work = condescension = REPORT
-- "Do yourself a favour and..." + dismissive advice = REPORT
-- "Yeah ok bud" - dismissive = lean REPORT
-- "It's amusing watching you..." - mocking = REPORT
+MILD/SINGLE = usually BENIGN:
+- "Sure, buddy" / "Ok pal" / "Yeah ok bud" - mild snark alone = lean BENIGN
+- Brief sarcasm without additional hostility = BENIGN
+- Look for friendly indicators (lol, emojis, ;) wink)
 
-Look for friendly indicators (lol, emojis, ;) wink) vs hostile context.
+STACKED/CLEAR = lean REPORT:
+- Multiple condescending elements: "Oh dear... What garbage... Do yourself a favour"
+- Condescension + insult: "Oh dear, you clearly don't understand basic physics"
+- Mocking + extended criticism: "It's amusing watching you..." + hostile content
+- Patronizing dismissal: "Whatever you say" + "you'll learn eventually"
+
+The test: Is it ONE mildly snarky phrase, or MULTIPLE stacked elements / combined with hostility?
 
 SKEPTICISM vs CONDESCENSION:
 Skepticism about methodology or claims is NOT the same as personal attacks:
