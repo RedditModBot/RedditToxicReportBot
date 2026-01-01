@@ -71,19 +71,24 @@ TOXIC BEHAVIOR INCLUDES:
 
 1) DIRECT ATTACKS ON USERS
    - Insults: "you're an idiot", "moron", "dumbass"
-   - Mental health attacks: "take your meds", "you're schizo", "seek help"
-   - Dismissive hostility: "fuck off", "nobody asked", "go away"
+   - Mental health attacks: "take your meds", "you're schizo", "seek help", "off your meds"
+   - Dismissive hostility: "fuck off", "nobody asked", "go away", "shut the fuck up"
    - Condescension/sarcasm AT users: "wow you're smart", "figured that out yourself?"
+   - Sexual harassment/taunts: "sucking his dick", "dickriding", "on his dick"
+   - Dehumanizing comparisons: "you're cancer", "parasite", "subhuman", "waste of oxygen"
 
 2) ACCUSATIONS & BAD FAITH
    - Shill/bot accusations: "you're a fed", "obvious bot", "paid disinfo agent"
    - Accusing users of being from Eglin AFB, CIA, etc.
    - Calling users "believers" or "debunkers" as insults
+   - Vote manipulation accusations: "you're using alts", "brigading", "sock puppet"
 
 3) IDENTITY-BASED ATTACKS
    - Slurs (racial, homophobic, ableist, etc.)
    - Hate speech targeting any group
-   - Using "retard", "autistic", etc. as insults at users
+   - Using "retard", "autistic", "tard" etc. as insults
+   - Homophobic pejoratives: "fake and gay", "gayest shit", "that's so gay"
+   - Political slur combinations: "libtard", "trumptard", "conservatard"
 
 4) THREATS & DANGEROUS CONTENT
    - Threats of violence (even vague ones)
@@ -105,6 +110,9 @@ TOXIC BEHAVIOR INCLUDES:
    - ONLY report if BOTH hostile AND directed at users/community
    - "This sub is garbage" = attacks the community = lean REPORT
    - "You're all idiots for believing this" = attacks users = REPORT
+   - "Everyone here is delusional" = attacks community = REPORT
+   - "You people are morons" = attacks users = REPORT
+   - "Bunch of whiny babies in this sub" = attacks community = REPORT
    - NOTE: Profane skepticism about CONTENT is usually BENIGN (see below)
 
 NOT TOXIC (allowed):
@@ -340,6 +348,8 @@ These are ALWAYS violations regardless of context:
    - "take your meds"
    - "you're schizo/crazy" (as insult)
    - "seek help" (as put-down)
+   - "off your meds again"
+   - "schizopost" / "schizo posting"
 
 3. CONDESCENSION/SARCASM AT USERS
    - "wow, you're really smart"
@@ -352,11 +362,15 @@ These are ALWAYS violations regardless of context:
    - "fuck off" / "go away"
    - "nobody asked" / "who asked"
    - "cope" / "seethe" / "touch grass" (directed at user)
+   - "shut the fuck up" / "STFU"
+   - "delete your account"
 
 5. SHILL/BOT ACCUSATIONS AT USERS
    - "you're a shill/bot/fed"
    - "obvious disinfo agent"
    - "Eglin AFB" accusations at users
+   - "you're using alt accounts" / "sock puppet"
+   - "brigading" accusations at specific users
 
 6. THREATS & SELF-HARM
    - Any threat of violence
@@ -366,8 +380,22 @@ These are ALWAYS violations regardless of context:
 7. SLURS & HATE SPEECH
    - Racial, homophobic, ableist slurs used as attacks
    - Dehumanizing language about groups
+   - Ableist: "retard", "retarded", "tard", "spaz"
+   - Homophobic pejoratives: "fake and gay", "gayest shit", "that's so gay"
+   - Political slur combos: "libtard", "trumptard"
 
-8. DOXXING / WITCH HUNTS
+8. SEXUAL HARASSMENT
+   - Sexual taunts directed at users: "sucking his dick", "dickriding"
+   - Sexual humiliation language
+   - Crude sexual insults: "jerking off to", "get off his dick"
+
+9. DEHUMANIZING LANGUAGE (when directed at users)
+   - "you're cancer" / "cancer to this community"
+   - "parasite" / "subhuman" / "vermin"
+   - "waste of oxygen" / "waste of space"
+   - Disease/pest comparisons aimed at users
+
+10. DOXXING / WITCH HUNTS
    - Sharing personal info
    - Calls to harass someone
 
