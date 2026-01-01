@@ -924,6 +924,37 @@ def build_slur_exceptions_set() -> set:
     exceptions = PATTERNS.get("benign_skip", {}).get("slur_exceptions", [])
     return set(p.lower() for p in exceptions)
 
+def build_vote_manipulation_set() -> set:
+    """Build set of vote manipulation accusation phrases from JSON"""
+    phrases = PATTERNS.get("shill_accusations", {}).get("vote_manipulation", [])
+    return set(p.lower() for p in phrases)
+
+def build_dehumanizing_set() -> Tuple[set, set]:
+    """
+    Build sets for dehumanizing insults from JSON.
+    Returns (dehumanizing_words, dehumanizing_phrases)
+    """
+    words = set()
+    phrases = set()
+    dehumanizing = PATTERNS.get("insults_direct", {}).get("dehumanizing", [])
+    for item in dehumanizing:
+        item_lower = item.lower()
+        if ' ' in item_lower:
+            phrases.add(item_lower)
+        else:
+            words.add(item_lower)
+    return words, phrases
+
+def build_veiled_threats_set() -> set:
+    """Build set of veiled threat/omen phrases from JSON"""
+    phrases = PATTERNS.get("threats", {}).get("veiled_omen", [])
+    return set(p.lower() for p in phrases)
+
+def build_homophobic_pejorative_set() -> set:
+    """Build set of homophobic pejorative phrases (gay used as insult)"""
+    phrases = PATTERNS.get("contextual_sensitive_terms", {}).get("homophobic_pejorative", [])
+    return set(p.lower() for p in phrases)
+
 # Build sets at module level
 SLUR_WORDS, SLUR_PHRASES = build_slur_sets()
 SLUR_EXCEPTIONS = build_slur_exceptions_set()
@@ -939,6 +970,10 @@ CONTEXTUAL_WORDS, CONTEXTUAL_PHRASES = build_contextual_terms_sets()
 BENIGN_PHRASES_SET = build_benign_phrases_set()
 ACCUSATION_PHRASES = build_accusations_set()
 HARASSMENT_MOD_PHRASES, HARASSMENT_CONDESCENSION_PHRASES, HARASSMENT_EMOJI = build_harassment_sets()
+VOTE_MANIPULATION_PHRASES = build_vote_manipulation_set()
+DEHUMANIZING_WORDS, DEHUMANIZING_PHRASES = build_dehumanizing_set()
+VEILED_THREAT_PHRASES = build_veiled_threats_set()
+HOMOPHOBIC_PEJORATIVE_PHRASES = build_homophobic_pejorative_set()
 
 # Note: Pattern counts are logged when SmartPreFilter initializes (after logging is configured)
 
@@ -1341,6 +1376,60 @@ def contains_harassment(text: str) -> Tuple[bool, str]:
             return True, "emoji"
     
     return False, ""
+
+def contains_vote_manipulation(text: str) -> bool:
+    """Check if text contains vote manipulation accusations"""
+    normalized = normalize_text(text)
+    for phrase in VOTE_MANIPULATION_PHRASES:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
+            return True
+    return False
+
+def contains_dehumanizing(text: str) -> bool:
+    """
+    Check if text contains dehumanizing insults (words or phrases).
+    E.g., "cancer", "parasite", "subhuman", "waste of oxygen"
+    """
+    normalized = normalize_text(text)
+    
+    # Check single-word dehumanizing terms
+    words = set(re.findall(r'\b\w+\b', normalized))
+    if words & DEHUMANIZING_WORDS:
+        return True
+    
+    # Check dehumanizing phrases with word boundaries
+    for phrase in DEHUMANIZING_PHRASES:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
+            return True
+    
+    return False
+
+def contains_veiled_threat(text: str) -> bool:
+    """
+    Check if text contains veiled threat/omen patterns.
+    E.g., "reap the consequences", "you'll pay", "watch your back"
+    """
+    normalized = normalize_text(text)
+    for phrase in VEILED_THREAT_PHRASES:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
+            return True
+    return False
+
+def contains_homophobic_pejorative(text: str) -> bool:
+    """
+    Check if text contains homophobic pejorative usage.
+    E.g., "fake and gay", "gayest shit", "that's gay"
+    These are uses of 'gay' as an insult, not identity references.
+    """
+    normalized = normalize_text(text)
+    for phrase in HOMOPHOBIC_PEJORATIVE_PHRASES:
+        pattern = r'\b' + re.escape(phrase) + r'\b'
+        if re.search(pattern, normalized):
+            return True
+    return False
 
 def contains_violence_illegal(text: str) -> bool:
     """
@@ -1979,6 +2068,10 @@ class SmartPreFilter:
         if not must_escalate_reason and contains_threat(text):
             must_escalate_reason = "must_escalate:threat"
         
+        # Check veiled threats/omens (only if directed)
+        if not must_escalate_reason and is_strongly_directed(text) and contains_veiled_threat(text):
+            must_escalate_reason = "must_escalate:veiled_threat"
+        
         # Check sexual violence
         if not must_escalate_reason and contains_sexual_violence(text):
             must_escalate_reason = "must_escalate:sexual_violence"
@@ -1994,6 +2087,18 @@ class SmartPreFilter:
         # Check shill accusations (only if STRONGLY directed at someone)
         if not must_escalate_reason and is_strongly_directed(text) and contains_shill_accusation(text):
             must_escalate_reason = "must_escalate:shill_accusation"
+        
+        # Check vote manipulation accusations (only if directed)
+        if not must_escalate_reason and is_strongly_directed(text) and contains_vote_manipulation(text):
+            must_escalate_reason = "must_escalate:vote_manipulation"
+        
+        # Check homophobic pejorative usage (always escalate - slur-like)
+        if not must_escalate_reason and contains_homophobic_pejorative(text):
+            must_escalate_reason = "must_escalate:homophobic_pejorative"
+        
+        # Check dehumanizing insults (only if directed)
+        if not must_escalate_reason and is_strongly_directed(text) and contains_dehumanizing(text):
+            must_escalate_reason = "must_escalate:dehumanizing"
         
         # Check bad faith accusations (only if directed)
         if not must_escalate_reason and is_strongly_directed(text) and contains_accusation(text):
