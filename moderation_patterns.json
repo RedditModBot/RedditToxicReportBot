@@ -1,20 +1,7 @@
 {
   "_comment": "Comprehensive moderation patterns for ToxicReportBot. Edit these without touching bot.py",
-  "_version": "1.3",
-  "_last_updated": "2026-01-01",
-  "_changelog": [
-    "1.2: Added patterns from audit analysis (337 comments, 22 flagged)",
-    "- NEW: accusations.bad_faith category",
-    "- NEW: dismissive_hostile.gatekeeping category",
-    "- NEW: insults_direct.condescension category",
-    "- NEW: harassment.mod_accusations category",
-    "- Added to shill_accusations: bad actor, bad actors",
-    "- Added to insults_direct.intelligence: can't identify shit variants",
-    "- Added to insults_direct.mental_health: you need help variants",
-    "- Added to insults_direct.character: snake oil salesman, attention seeking",
-    "- Added emoji mockery pattern: 🤡",
-    "v1.3 (2026-01-01) - Based on 187-batch gpt-5.2 analysis of 9,350 ban-worthy comments:\n- Added contextual_sensitive_terms.homophobic_pejorative for pejorative 'gay' usage\n- Expanded harassment.mod_accusations with antagonism patterns\n- Added shill_accusations.vote_manipulation patterns\n- Added insults_direct.dehumanizing for disease/parasite comparisons\n- Added regex patterns for obfuscated profanity (sh*t, f u c k, etc.)\n- Added threats.veiled_omen for veiled threat patterns"
-  ],
+  "_version": "1.4",
+  "_last_updated": "2026-01-02",
   "_important_notes": [
     "Do NOT skip LLM on single words like 'crazy' or 'insane'. Only skip phrase matches AND only when NOT directed at a user.",
     "Keep ambiguous terms (e.g., 'queer', 'trap', 'it/its') out of 'always escalate' lists. Put them in contextual lists.",
@@ -349,17 +336,24 @@
       "klan"
     ],
     "_comment2": "These terms CAN be slurs but often appear in neutral context. Bot should check directedness + Detoxify scores.",
-    "homophobic_pejorative": [
-      "fake and gay",
-      "gayest shit",
-      "gayest thing",
-      "that's gay",
-      "thats gay",
-      "so gay",
-      "sounds gay",
-      "gay as hell",
-      "gay af",
-      "how gay"
+    "polite_condescension": [
+      "people like you",
+      "feel bad for you",
+      "feel bad for people like you",
+      "hope one day you",
+      "hope someday you",
+      "hope you learn",
+      "hope you gain",
+      "hope you realize",
+      "hope you understand",
+      "ability to think",
+      "ability to reason",
+      "ability to comprehend",
+      "capacity to think",
+      "capacity to understand",
+      "critically think",
+      "learn to think",
+      "learn to reason"
     ]
   },
   "profanity_insults": {
@@ -588,19 +582,6 @@
       "i have your info",
       "i have your dox",
       "i have your doxx"
-    ],
-    "veiled_omen": [
-      "reap the consequences",
-      "you'll pay for",
-      "you will pay",
-      "coming for you",
-      "watch your back",
-      "remember this moment",
-      "remember this day",
-      "you'll regret",
-      "you will regret",
-      "karma will get",
-      "karma is coming"
     ]
   },
   "sexual_violence": {
@@ -648,19 +629,6 @@
       "raid this",
       "dox them",
       "doxx them"
-    ]
-  },
-  "accusations": {
-    "_comment": "NEW in v1.2 - Bad faith accusations directed at users",
-    "bad_faith": [
-      "you are lying",
-      "you're lying",
-      "youre lying",
-      "u are lying",
-      "ur lying",
-      "you liar",
-      "you're a liar",
-      "youre a liar"
     ]
   },
   "shill_accusations": {
@@ -755,72 +723,7 @@
       "glow in the dark",
       "paid actor",
       "crisis actor",
-      "from langley",
-      "not even real people",
-      "commenters are bots",
-      "shut down by bots",
-      "comments are all bots",
-      "sub is full of bots",
-      "bad actor",
-      "bad actors",
-      "known disinformation agent"
-    ],
-    "vote_manipulation": [
-      "vote brigading",
-      "brigading",
-      "using alts",
-      "alt accounts",
-      "your alt",
-      "your alts",
-      "same person",
-      "upvote your own",
-      "downvote brigade",
-      "sock puppet",
-      "sockpuppet",
-      "multiple accounts",
-      "vote manipulation"
-    ]
-  },
-  "harassment": {
-    "_comment": "NEW in v1.2 - Harassment patterns including mod accusations and condescension",
-    "mod_accusations": [
-      "moderators are incentivized",
-      "mods are incentivized",
-      "mods are paid",
-      "moderators are paid",
-      "mods are shills",
-      "moderators are shills",
-      "mods are corrupt",
-      "moderators are corrupt",
-      "mods are trash",
-      "mods are garbage",
-      "mods are a joke",
-      "trash mods",
-      "joke mods",
-      "finally banned",
-      "banned finally",
-      "ban me then",
-      "go ahead ban me",
-      "mods are censoring",
-      "mods censoring",
-      "taking out the trash",
-      "mods suck",
-      "power tripping mods",
-      "power hungry mods",
-      "corrupt mods"
-    ],
-    "condescension_mockery": [
-      "keep your mouth wide open",
-      "nod along",
-      "do people actually take this seriously",
-      "hard to take you serious",
-      "hard to take you seriously",
-      "hard to take anyone seriously",
-      "can't take you seriously",
-      "cant take you seriously"
-    ],
-    "emoji_mockery": [
-      "🤡"
+      "from langley"
     ]
   },
   "insults_direct": {
@@ -876,8 +779,6 @@
       "dummy",
       "dummies",
       "ignorant",
-      "gullible",
-      "gullible people",
       "brainlet",
       "brainlets",
       "smooth brain",
@@ -894,12 +795,7 @@
       "idot",
       "moran",
       "morans",
-      "dumas",
-      "can't identify shit",
-      "cant identify shit",
-      "couldn't identify shit",
-      "couldnt identify shit",
-      "random shit for attention"
+      "dumas"
     ],
     "character": [
       "loser",
@@ -916,8 +812,6 @@
       "piece of trash",
       "full of shit",
       "full of crap",
-      "bullshitter",
-      "bullshitters",
       "scum",
       "scumbag",
       "scumbags",
@@ -1069,13 +963,7 @@
       "dumb-ass",
       "smart ass",
       "smart-ass",
-      "smartass",
-      "snake oil salesman",
-      "snake oil salesmen",
-      "snake-oil salesman",
-      "attention seeking",
-      "attention seeker",
-      "attention seekers"
+      "smartass"
     ],
     "mental_health": [
       "take your meds",
@@ -1160,57 +1048,7 @@
       "somethings wrong with you",
       "whats wrong with you",
       "what's wrong with you",
-      "tf is wrong with you",
-      "you need help",
-      "y'all need help",
-      "yall need help",
-      "you all need help"
-    ],
-    "condescension": [
-      "first time going outside",
-      "first time outside",
-      "is it your first time outside",
-      "never seen a spotlight before",
-      "never seen a plane before",
-      "never seen a drone before",
-      "never seen a bird before",
-      "welcome to the world",
-      "welcome to earth",
-      "welcome to reality",
-      "little fantasies",
-      "your little fantasies",
-      "your little theory",
-      "your little ideas"
-    ],
-    "group_generalizations": [
-      "religious nuts",
-      "religious nutjobs",
-      "bible thumpers",
-      "conspiracy nuts"
-    ],
-    "dehumanizing": [
-      "cancer",
-      "you're cancer",
-      "youre cancer",
-      "human garbage",
-      "garbage person",
-      "piece of garbage",
-      "parasite",
-      "you parasite",
-      "subhuman",
-      "sub-human",
-      "waste of oxygen",
-      "waste of space",
-      "waste of air",
-      "waste of life",
-      "disease",
-      "plague on",
-      "filth",
-      "human filth",
-      "scum of",
-      "bottom feeder",
-      "vermin",
-      "cockroach"
+      "tf is wrong with you"
     ]
   },
   "dismissive_hostile": {
@@ -1312,24 +1150,6 @@
       "youre making yourself look",
       "youre really smart",
       "youre so smart"
-    ],
-    "gatekeeping": [
-      "please don't post again",
-      "please dont post again",
-      "dont post again",
-      "don't post again",
-      "do not post again",
-      "stop posting",
-      "please stop posting",
-      "never post again",
-      "delete your account",
-      "delete your reddit",
-      "leave this sub",
-      "leave the sub",
-      "get off this sub",
-      "get out of this sub",
-      "you don't belong here",
-      "you dont belong here"
     ]
   },
   "benign_skip": {
@@ -1493,7 +1313,11 @@
       "watching that shit",
       "seeing that shit",
       "that shit is fake",
-      "that shit was fake"
+      "that shit was fake",
+      "press x to doubt",
+      "soooo fake",
+      "sooooo fake",
+      "being fed bullshit"
     ],
     "frustration_exclamations": [
       "fuck it",
@@ -1651,7 +1475,12 @@
       "afaik",
       "iirc",
       "who knew",
-      "lol who"
+      "lol who",
+      "fall for the same shit",
+      "times that suck",
+      "what a disappointment",
+      "shitshow",
+      "it'll be a shitshow"
     ],
     "slang_expressions": [
       "deadass",
@@ -1722,7 +1551,15 @@
       "mind: dumb",
       "brain: off",
       "head: empty",
-      "mood: skeptical"
+      "mood: skeptical",
+      "wtf lol",
+      "holy shit man",
+      "damn man",
+      "whatever the hell it was",
+      "booo",
+      "son of a gun",
+      "shits crazy",
+      "that shits crazy"
     ],
     "third_party_profanity": [
       "fuck that",
@@ -1838,7 +1675,10 @@
       "reddit sucks",
       "twitter sucks",
       "facebook sucks",
-      "youtube sucks"
+      "youtube sucks",
+      "full of \ud83d\udca9",
+      "weird af",
+      "muppet show"
     ],
     "profanity_as_emphasis": [
       "is fucking",
@@ -2069,7 +1909,13 @@
       "nose for bullshit",
       "pretty good bs detector",
       "bs detector",
-      "bullshit detector"
+      "bullshit detector",
+      "the shit is real",
+      "say shit",
+      "so fucking what",
+      "whatever the fuck",
+      "god damn patriot",
+      "goddamn patriot"
     ],
     "criticizing_ideas": [
       "this exchange",
@@ -2126,7 +1972,7 @@
       "say it louder",
       "louder for the people in the back",
       "you dropped this king",
-      "you dropped this 👑",
+      "you dropped this \ud83d\udc51",
       "w take",
       "w comment"
     ],
@@ -2161,7 +2007,10 @@
       "get out of here with",
       "oh get out",
       "oh shut up",
-      "shut the hell up"
+      "shut the hell up",
+      "buckle up, buttercup",
+      "he's obviously a grey",
+      "obviously a grey"
     ],
     "genuine_questions": [
       "what exactly is a",
@@ -2302,7 +2151,10 @@
       "argument is stupid",
       "argument is dumb",
       "logic is stupid",
-      "logic is dumb"
+      "logic is dumb",
+      "sound like bullshit",
+      "too silly",
+      "wtf even was this"
     ],
     "self_deprecating": [
       "i'm just dumb",
@@ -2426,7 +2278,10 @@
       "im proud of",
       "maybe im just",
       "maybe i'm just",
-      "am i just"
+      "am i just",
+      "dork about this stuff like me",
+      "footage sucks",
+      "video sucks"
     ],
     "slur_exceptions": [
       "go poof",
@@ -2631,12 +2486,12 @@
       "$": "s",
       "!": "i",
       "+": "t",
-      "€": "e",
-      "¥": "y",
-      "©": "c",
-      "®": "r",
-      "¡": "i",
-      "£": "e"
+      "\u20ac": "e",
+      "\u00a5": "y",
+      "\u00a9": "c",
+      "\u00ae": "r",
+      "\u00a1": "i",
+      "\u00a3": "e"
     },
     "common_evasions": {
       "ph": "f"
@@ -2673,15 +2528,7 @@
       "\\bf\\W*[a4@]\\W*g\\W*g?\\W*[o0]?\\W*t\\W*s?\\b",
       "\\bk\\W*[i1!|l]\\W*k\\W*[e3]\\W*s?\\b",
       "\\bt\\W*r\\W*[a4@]\\W*n\\W*n\\W*[iy1!]\\W*(e?s)?\\b",
-      "\\br\\W*[e3]\\W*t\\W*[a4@]\\W*r\\W*d\\W*(s|ed)?\\b",
-      "sh[\\*\\@\\#]+t",
-      "f[\\s\\*\\.]+u[\\s\\*\\.]+c[\\s\\*\\.]+k",
-      "a[\\s\\*\\.]+s[\\s\\*\\.]+s",
-      "c[\\*\\@\\#]+nt",
-      "b[\\*\\@\\#]+tch",
-      "f[\\*\\@\\#]+ck",
-      "f[\\*\\@\\#]+g",
-      "n[\\*\\@\\#]+gger"
+      "\\br\\W*[e3]\\W*t\\W*[a4@]\\W*r\\W*d\\W*(s|ed)?\\b"
     ],
     "directedness_check": [
       "\\bu/\\w+",
@@ -2907,5 +2754,9 @@
       "6 if you will"
     ],
     "_comment2": "If you want obfuscated slur matching without listing variants, generate regex from the term list using a joiner like \\W* between letters."
-  }
+  },
+  "changelog": [
+    "v1.4-conservative (2026-01-02): Added 40 SAFE benign_skip patterns (exclamations/expressions only)",
+    "v1.4 (2026-01-02): Added polite_condescension patterns from audit cross-reference"
+  ]
 }
